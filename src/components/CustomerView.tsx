@@ -265,7 +265,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
   if (!isNameSubmitted && !placedOrder) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-brand-bg">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-brand-badge-border overflow-hidden">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-brand-badge-border overflow-hidden lg:max-w-lg">
           {/* Header */}
           <div className="bg-gradient-to-br from-brand-forest to-brand-deep p-8 text-center text-white relative overflow-hidden">
             <div className="absolute inset-0 bg-brand-deep/10" />
@@ -350,7 +350,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
         {/* Banner Header - Compact */}
         <div className="bg-brand-deep text-white pt-3 pb-4 px-4 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-brand-forest/40 rounded-full blur-2xl -mr-8 -mt-8" />
-          <div className="max-w-md mx-auto">
+          <div className="max-w-md mx-auto lg:max-w-5xl lg:px-4">
             <div className="flex items-center justify-between mb-1">
               <button onClick={() => setIsNameSubmitted(false)} className="text-white/70 hover:text-white flex items-center gap-1 text-[11px] font-medium transition-colors">
                 <ArrowLeft size={14} /> Kembali
@@ -376,7 +376,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
         </div>
 
         {/* Search Bar - Integrated */}
-        <div className="max-w-md mx-auto px-4 mt-4 relative z-10">
+        <div className="max-w-md mx-auto px-4 mt-4 relative z-10 lg:max-w-5xl lg:px-6">
           <div className="bg-white rounded-2xl shadow-lg p-2.5 flex items-center gap-2 border border-slate-100 mx-1">
             <Search className="text-slate-400 ml-1 shrink-0" size={18} />
             <input
@@ -395,7 +395,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
         </div>
 
         {/* Categories Tab */}
-        <div className="max-w-md mx-auto px-4 mt-6">
+        <div className="max-w-md mx-auto px-4 mt-6 lg:max-w-5xl lg:px-6">
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
             {[
               { id: 'semua', label: 'Semua Menu' },
@@ -418,16 +418,15 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
         </div>
 
         {/* Menu Items Grid */}
-        <div className="max-w-md mx-auto px-4 mt-4">
+        <div className="max-w-md mx-auto px-4 mt-4 lg:max-w-5xl lg:px-6">
           {filteredMenu.length === 0 ? (
             <div className="bg-white rounded-2xl p-8 text-center border border-slate-100 text-slate-500">
               <p className="font-semibold">Menu tidak ditemukan</p>
               <p className="text-xs text-slate-400 mt-1">Coba kata kunci atau kategori yang lain.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {filteredMenu.map(item => (
-                <div
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 lg:gap-5">
+              {filteredMenu.map(item => (                <div
                   key={item.id}
                   className={`bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden transition-all duration-200 ${!item.isAvailable ? 'opacity-45 pointer-events-none select-none' : 'hover:shadow-md active:scale-[0.98]'
                     }`}
@@ -494,7 +493,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
         {/* Floating Cart Button */}
         {getCartItemCount() > 0 && (
           <div className="fixed bottom-0 left-0 right-0 p-4 bg-transparent pointer-events-none z-30">
-            <div className="max-w-md mx-auto">
+            <div className="max-w-md mx-auto lg:max-w-5xl">
               <button
                 onClick={() => setIsCartOpen(true)}
                 className="w-full bg-brand-forest hover:bg-brand-deep text-white p-4 rounded-2xl shadow-xl flex items-center justify-between transition-all active:scale-[0.99] pointer-events-auto cursor-pointer"
@@ -528,7 +527,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
                 animate={{ y: 0 }}
                 exit={{ y: "100%" }}
                 transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                className="w-full max-w-md bg-white rounded-t-[2rem] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden"
+                className="w-full max-w-md bg-white rounded-t-[2rem] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden lg:max-w-lg"
               >
                 {/* Drawer Header */}
                 <div className="p-5 border-b border-slate-100 flex items-center justify-between">
@@ -594,7 +593,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
                   {/* Payment Method Selector */}
                   <div className="space-y-3">
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">Metode Pembayaran</label>
-                    <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
                       <button
                         onClick={() => setPaymentMethod('qris')}
                         className={`p-3.5 rounded-xl border-2 flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${paymentMethod === 'qris'
@@ -669,7 +668,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-slate-100"
+                className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-slate-100 lg:max-w-lg"
               >
                 <div className="p-5 border-b border-slate-100 flex items-start gap-3">
                   <div className="w-10 h-10 rounded-full bg-brand-badge-bg flex items-center justify-center flex-shrink-0">
@@ -733,7 +732,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
         </AnimatePresence>
 
         {/* Footer */}
-        <footer className="max-w-md mx-auto px-4 pt-2 pb-4 text-center">
+        <footer className="max-w-md mx-auto px-4 pt-2 pb-4 text-center lg:max-w-5xl">
           <p className="text-[10px] text-slate-400">© {new Date().getFullYear()} {settings.name} — Semua hak cipta dilindungi.</p>
         </footer>
       </div>
@@ -745,7 +744,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
 
   return (
     <div className="min-h-screen bg-brand-bg p-4 pb-12 flex flex-col items-center justify-start">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-brand-badge-border/65 overflow-hidden mt-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-brand-badge-border/65 overflow-hidden mt-4 lg:max-w-2xl">
         {/* Header Status */}
         <div className="bg-brand-deep text-white p-6 text-center relative">
           <span className="inline-block px-2.5 py-0.5 bg-brand-forest text-brand-light-sage rounded-full text-[10px] font-bold uppercase tracking-wider mb-2 border border-brand-sage/20">
@@ -1013,7 +1012,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-2xl w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100"
+                className="bg-white rounded-2xl w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100 lg:max-w-lg"
               >
                 <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
                   <div>
@@ -1099,7 +1098,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-slate-100"
+                className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-slate-100 lg:max-w-lg"
               >
                 <div className="p-5 border-b border-slate-100 flex items-start gap-3">
                   <div className="w-10 h-10 rounded-full bg-brand-badge-bg flex items-center justify-center flex-shrink-0">
@@ -1162,7 +1161,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
         </AnimatePresence>
 
         {/* Footer */}
-        <footer className="w-full max-w-md px-4 pt-3 pb-1 text-center">
+        <footer className="w-full max-w-md px-4 pt-3 pb-1 text-center lg:max-w-2xl">
           <p className="text-[10px] text-slate-400">© {new Date().getFullYear()} {settings.name} — Semua hak cipta dilindungi.</p>
         </footer>
       </div>
