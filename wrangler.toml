@@ -1,0 +1,18 @@
+name = "salad-yook"
+main = "server/worker.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "dist"
+binding = "ASSETS"
+
+[vars]
+APP_URL = "http://localhost:8787"
+JWT_SECRET = "salad-yook-dev-secret-ganti-di-produksi"
+
+# Ganti database_id dengan hasil `wrangler d1 create salad-yook-db`
+[[d1_databases]]
+binding = "DB"
+database_name = "salad-yook-db"
+database_id = "placeholder-local"
