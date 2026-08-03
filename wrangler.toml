@@ -15,4 +15,4 @@ APP_URL = "https://salad-yook.enaakk.workers.dev"
 [[d1_databases]]
 binding = "DB"
 database_name = "salad-yook-db"
-database_id = "placeholder-local"
+database_id = "b2e348e6-ef91-4ba7-abcc-86afca8f58ed"

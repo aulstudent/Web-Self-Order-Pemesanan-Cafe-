@@ -1525,6 +1525,8 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
         )}
 
         </div>
+
+        <p className="text-center text-[10px] text-slate-400 pb-4">© {new Date().getFullYear()} {settings.name} — Semua hak cipta dilindungi.</p>
       </main>
 
       {/* MENU FORM MODAL */}

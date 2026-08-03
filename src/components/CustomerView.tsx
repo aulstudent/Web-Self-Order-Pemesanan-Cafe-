@@ -264,7 +264,7 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
   // 1. Initial State: Enter Name and Table Number
   if (!isNameSubmitted && !placedOrder) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-brand-bg">
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-brand-bg">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-brand-badge-border overflow-hidden">
           {/* Header */}
           <div className="bg-gradient-to-br from-brand-forest to-brand-deep p-8 text-center text-white relative overflow-hidden">
@@ -337,6 +337,8 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
             </button>
           </form>
         </div>
+
+        <p className="text-[10px] text-slate-400 mt-4">© {new Date().getFullYear()} {settings.name} — Semua hak cipta dilindungi.</p>
       </div>
     );
   }
@@ -729,6 +731,11 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
             </div>
           )}
         </AnimatePresence>
+
+        {/* Footer */}
+        <footer className="max-w-md mx-auto px-4 pt-2 pb-4 text-center">
+          <p className="text-[10px] text-slate-400">© {new Date().getFullYear()} {settings.name} — Semua hak cipta dilindungi.</p>
+        </footer>
       </div>
     );
   }
@@ -1153,6 +1160,11 @@ export default function CustomerView({ settings, menu, onOrderPlaced }: Customer
             </div>
           )}
         </AnimatePresence>
+
+        {/* Footer */}
+        <footer className="w-full max-w-md px-4 pt-3 pb-1 text-center">
+          <p className="text-[10px] text-slate-400">© {new Date().getFullYear()} {settings.name} — Semua hak cipta dilindungi.</p>
+        </footer>
       </div>
     </div>
   );

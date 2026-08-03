@@ -759,6 +759,8 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
               ))}
             </div>
           )}
+
+          <p className="text-center text-[10px] text-slate-400 pt-2">© {new Date().getFullYear()} {settings.name} — Semua hak cipta dilindungi.</p>
         </main>
       </div>
 

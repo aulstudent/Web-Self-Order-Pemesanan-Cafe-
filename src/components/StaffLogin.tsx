@@ -139,6 +139,8 @@ export default function StaffLogin({ onLoginSuccess, requiredRole, portalLabel }
           </div>
         )}
       </div>
+
+      <p className="text-[10px] text-slate-400 mt-4">© {new Date().getFullYear()} Salad Yook — Semua hak cipta dilindungi.</p>
     </div>
   );
 }
