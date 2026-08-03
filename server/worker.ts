@@ -349,6 +349,20 @@ async function logApp(c: any, level: 'INFO' | 'WARN' | 'ERROR', message: string,
 }
 
 // ====== Routes ======
+// Paksa HTTPS di produksi (HTTP -> HTTPS redirect) supaya browser tidak
+// menampilkan "Not secure". Lokal (localhost) tetap diizinkan.
+app.use('*', async (c, next) => {
+  const url = new URL(c.req.url);
+  const host = url.hostname;
+  const isLocal = host === 'localhost' || host === '127.0.0.1';
+  const proto = c.req.header('x-forwarded-proto') || url.protocol.replace(':', '');
+  if (!isLocal && proto === 'http') {
+    url.protocol = 'https:';
+    return c.redirect(url.toString(), 308);
+  }
+  await next();
+});
+
 // Rate limit hanya untuk request tulis (POST/PUT/DELETE). GET publik (menu,
 // settings, status pesanan) bebas agar banyak pelanggan di WiFi yang sama
 // tidak terblokir saat polling.
