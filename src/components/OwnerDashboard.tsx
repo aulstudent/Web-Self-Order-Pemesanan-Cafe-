@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch } from '../utils/api';
+import { compressImage } from '../utils/image';
 
 function Row({ k, v, key }: { k: string; v: any; key?: React.Key }) {
   return (
@@ -1199,14 +1200,18 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                          setQrisImageUrl(ev.target?.result as string);
-                        };
-                        reader.readAsDataURL(file);
+                      if (!file) return;
+                      if (file.size > 5 * 1024 * 1024) {
+                        setError('File terlalu besar! Maks 5MB.');
+                        return;
+                      }
+                      try {
+                        const dataUrl = await compressImage(file);
+                        setQrisImageUrl(dataUrl);
+                      } catch (err) {
+                        setError('Gagal memproses gambar QRIS');
                       }
                     }}
                     className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
@@ -1594,14 +1599,18 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                          setMenuFormImageUrl(ev.target?.result as string);
-                        };
-                        reader.readAsDataURL(file);
+                      if (!file) return;
+                      if (file.size > 5 * 1024 * 1024) {
+                        setError('File terlalu besar! Maks 5MB.');
+                        return;
+                      }
+                      try {
+                        const dataUrl = await compressImage(file);
+                        setMenuFormImageUrl(dataUrl);
+                      } catch (err) {
+                        setError('Gagal memproses gambar menu');
                       }
                     }}
                     className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 text-xs"
