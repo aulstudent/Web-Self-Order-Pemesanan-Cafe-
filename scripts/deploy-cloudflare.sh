@@ -11,7 +11,7 @@ DB_NAME="salad-yook-db"
 TOML="wrangler.toml"
 
 echo "=== 1/6 Cek login wrangler ==="
-if ! npx wrangler whoami 2>/dev/null | grep -q "Authenticated"; then
+if ! npx wrangler whoami 2>/dev/null | grep -qi "logged in"; then
   echo "Belum login. Jalankan: npx wrangler login"
   exit 1
 fi
