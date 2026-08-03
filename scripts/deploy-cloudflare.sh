@@ -73,16 +73,22 @@ done
 # Sandi awal acak - nilai asli di file lokal .credentials.local (TIDAK di repo)
 npx wrangler d1 execute "$DB_NAME" --remote --command "INSERT OR IGNORE INTO users (id, username, name, role, email, password, created_at) VALUES ('user-admin','admin','Admin (Monitoring)','admin','','pbkdf2:100000:2055f2fa44348564e891faef437b63bf:2c428efa23c625194667669c5c12a12a2d3e08cfb693ed26ba2a24b4c7610283', datetime('now'));" >/dev/null 2>&1 || true
 
-echo "=== 6/6 JWT_SECRET + Deploy ==="
+# Seed akun awal (owner/kasir) - INSERT OR IGNORE, aman dijalankan ulang
+npx wrangler d1 execute "$DB_NAME" --remote --file=server/seed.sql
+
+echo "=== 6/6 Deploy ==="
+npx wrangler deploy
+
+echo "=== 7/7 JWT_SECRET (secret produksi) ==="
 if ! npx wrangler secret list --json 2>/dev/null | grep -q '"JWT_SECRET"'; then
   SECRET=$(openssl rand -base64 32)
+  printf '{"JWT_SECRET":"%s"}\n' "$SECRET" > /tmp/salad-secret.json
   echo "  Memasang JWT_SECRET acak..."
-  echo "$SECRET" | npx wrangler secret put JWT_SECRET
+  npx wrangler secret bulk /tmp/salad-secret.json
+  rm -f /tmp/salad-secret.json
 else
   echo "  JWT_SECRET sudah terpasang."
 fi
-
-npx wrangler deploy
 
 echo ""
 echo "=================================================="

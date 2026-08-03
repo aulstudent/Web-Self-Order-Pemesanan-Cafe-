@@ -8,8 +8,8 @@ directory = "dist"
 binding = "ASSETS"
 
 [vars]
-APP_URL = "http://localhost:8787"
-JWT_SECRET = "salad-yook-dev-secret-ganti-di-produksi"
+APP_URL = "https://salad-yook.2514101071.workers.dev"
+# JWT_SECRET tidak di sini: lokal pakai .dev.vars, produksi pakai wrangler secret
 
 # Ganti database_id dengan hasil `wrangler d1 create salad-yook-db`
 [[d1_databases]]
