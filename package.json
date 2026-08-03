@@ -12,6 +12,7 @@
     "deploy:cf": "vite build && wrangler deploy",
     "deploy:prod": "bash scripts/deploy-cloudflare.sh",
     "backup:d1": "bash scripts/backup-d1.sh",
+    "screenshots": "node scripts/capture-screenshots.mjs",
     "d1:init": "wrangler d1 execute salad-yook-db --local --file=server/schema.sql && wrangler d1 execute salad-yook-db --local --file=server/seed.sql",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

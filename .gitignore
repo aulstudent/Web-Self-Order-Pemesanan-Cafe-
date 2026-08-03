@@ -13,3 +13,4 @@ logs/
 .wrangler/
 .credentials.local
 .dev.vars
+screenshots/godmode-login.png
