@@ -1,11 +1,17 @@
 <p align="center">
-  <img src="assets/logo-large.png" alt="Salad Yook" width="180" />
+  <img src="assets/logo-large.png" alt="Salad Yook" width="200" />
 </p>
 
-<h1 align="center">🌿 Salad Yook — Sistem Pemesanan Cafe (QR Self-Order)</h1>
+<h1 align="center">Salad Yook — Sistem Pemesanan Cafe (QR Self-Order)</h1>
 
 <p align="center">
   <strong>🇮🇩 Indonesia</strong> · <a href="README.en.md">🇬🇧 English</a>
+</p>
+
+<p align="center">
+  <a href="https://salad-yook.web.id" target="_blank" rel="noopener">
+    <img alt="Lihat Live" src="https://img.shields.io/badge/Lihat%20Live-salad--yook.web.id-2d5a27?style=for-the-badge" />
+  </a>
 </p>
 
 <p align="center">
@@ -21,12 +27,25 @@
 </p>
 
 <p align="center">
-  Aplikasi pemesanan menu digital berbasis <b>QR Code</b> untuk kafe. Pelanggan scan QR meja → memesan dari HP → kasir mengonfirmasi → pesanan siap diambil (dengan pemberitahuan pager wireless Kolmi).
+  Aplikasi pemesanan menu digital berbasis <b>QR Code</b> untuk kafe. Pelanggan scan QR meja → memesan dari HP → kasir mengonfirmasi → pesanan siap diambil, dengan pemberitahuan pager wireless Kolmi.
 </p>
 
 ---
 
-## 👀 Preview
+## Alur Sistem
+
+```mermaid
+flowchart LR
+  P[Pelanggan] -->|Scan QR meja| M[Pilih Menu]
+  M --> C[Keranjang & Konfirmasi]
+  C --> K[Kasir]
+  K -->|Konfirmasi pembayaran| PR[Pesanan diproses]
+  PR -->|Siap Diambil| A[Pelanggan ambil di kasir]
+  A --> S[Selesai]
+  C -.->|Tambah pesanan| M
+```
+
+## Preview
 
 <p align="center">
   <img src="screenshots/customer-menu.png" alt="Halaman menu pelanggan (desktop)" width="45%" />
@@ -43,33 +62,32 @@
   <img src="screenshots/order-flow.gif" alt="Demo alur pemesanan" width="35%" />
 </p>
 
-> 💡 Screenshot di atas adalah hasil bawaan (`seed`). Screenshot terbaru bisa di-generate ulang dengan `npm run screenshots`.
+> Screenshot di atas adalah hasil bawaan (`seed`). Screenshot terbaru bisa di-generate ulang dengan `npm run screenshots`.
 
 ---
 
-## 🚀 Fitur Utama
+## Fitur Utama
 
 | | |
 |---|---|
-| 👤 **Pelanggan** | Scan QR meja, pilih menu, keranjang, konfirmasi sebelum bayar, pantau status pesanan real-time, tambah pesanan (self-service), bayar QRIS/tunai. |
-| 🧑‍💼 **Kasir** (`/staff`) | Kelola pesanan, konfirmasi pembayaran, set "Siap Diambil", tambah/batal item, cetak struk, notifikasi suara pesanan baru. |
-| 📊 **Owner** (`/staff`) | Laporan pendapatan (export CSV), kelola menu & stok, kelola akun staf, QR meja, pengaturan kafe & QRIS. |
-| 🛡️ **Admin/Godmode** (`/godmode`) | Pemantauan jarak jauh — **Log & Aktivitas** (error & event), **Akses Hari Ini** (perangkat + manusia vs AI/bot), **Wrangler Info** (status server & Cloudflare). |
-| 🔐 **Keamanan** | Role terpisah, JWT httpOnly, rate limit, validasi transisi status, ID pesanan unik, backup otomatis. |
-| ✨ **Pengalaman** | Halaman menu responsif, sapaan per jam, animasi halus, keranjang melayang dengan mikro-interaksi. |
+| **Pelanggan** | Scan QR meja, pilih menu, keranjang, konfirmasi sebelum bayar, pantau status pesanan real-time, tambah pesanan (self-service), bayar QRIS/tunai. |
+| **Kasir** (`/staff`) | Kelola pesanan, konfirmasi pembayaran, set "Siap Diambil", tambah/batal item, cetak struk, notifikasi suara pesanan baru. |
+| **Owner** (`/staff`) | Laporan pendapatan (export CSV), kelola menu & stok, kelola akun staf, QR meja, pengaturan kafe & QRIS. |
+| **Admin / Godmode** (`/godmode`) | Pemantauan jarak jauh — Log & Aktivitas (error & event), Akses Hari Ini (perangkat + manusia vs AI/bot), Wrangler Info. |
+| **Keamanan** | Role terpisah, JWT httpOnly, rate limit, validasi transisi status, ID pesanan unik, sandi ter-hash, backup otomatis. |
 
-## 🛠️ Teknologi
+## Teknologi
 
 - **Frontend:** React 19 + Vite + Tailwind CSS + Motion (animasi) + Lucide (ikon)
 - **Backend Cloudflare:** Hono + D1 (SQLite) + Workers Assets
 - **Backend lokal/alternatif:** Express + better-sqlite3
 - **Deploy:** Cloudflare Workers
 
-## ⚡ Kebutuhan
+## Kebutuhan
 
 - Node.js **LTS v24** (lihat `.nvmrc`; jalankan `nvm use` di folder ini)
 
-## 🏃 Menjalankan Lokal
+## Menjalankan Lokal
 
 ```bash
 npm install
@@ -84,24 +102,16 @@ npm run dev:lan             # Worker dapat diakses dari HP (WiFi sama)
 - Portal owner/kasir: `http://localhost:3000/staff`
 - Portal admin: `http://localhost:3000/godmode`
 
-> ⚠️ Catatan: `wrangler dev` (emulasi lokal miniflare) bisa crash intermittent di sebagian mesin — ini **bukan** masalah kode dan **tidak terjadi di produksi**. Untuk kerja lokal gunakan `npm run dev`.
+> Catatan: `wrangler dev` (emulasi lokal miniflare) bisa crash intermittent di sebagian mesin — ini **bukan** masalah kode dan **tidak terjadi di produksi**. Untuk kerja lokal gunakan `npm run dev`.
 
-## 🔑 Akun & Sandi Awal
+## Akun & Sandi Awal
 
 - **Sandi awal (owner/kasir/admin) ada di file lokal `.credentials.local`** — file ini **tidak ikut di repo** (aman).
 - **WAJIB ganti semua sandi bawaan segera setelah login pertama** sebelum menyerahkan ke pengguna/pembeli:
   - Admin → `/godmode` → Pengaturan Cafe → "Ubah Sandi Saya"
   - Owner/Kasir → `/staff` → Kelola Akun Staf
 
-## 🔄 Alur Penggunaan
-
-1. Pelanggan scan QR meja → isi nama → pilih menu → keranjang → "Bayar & Pesan" → konfirmasi.
-2. Kasir melihat pesanan baru → konfirmasi pembayaran → pesanan diproses.
-3. Saat siap → kasir klik "Set Siap Diambil" (+ nyalakan pager Kolmi) → pelanggan ambil di kasir.
-4. Kasir "Selesaikan Pesanan" → transaksi selesai.
-5. Pelanggan dapat "Tambah Pesanan" sebelum selesai dibuat; selisih item tambahan dibayar di kasir.
-
-## 🚀 Deploy ke Cloudflare
+## Deploy ke Cloudflare
 
 ```bash
 npm run deploy:prod         # = bash scripts/deploy-cloudflare.sh
@@ -115,14 +125,16 @@ Script otomatis: build → buat/ambil D1 → migrasi schema → pastikan akun ad
 3. Ganti sandi owner/kasir di `/staff`.
 4. Uji alur scan → pesan → siap diambil → selesai.
 
-## 💾 Backup & Pemantauan
+## Keamanan & Backup
 
 - Backup D1: `npm run backup:d1`
+- Backup akun staf: `npm run backup:users`
+- Reset penjualan (aman, hanya arsip): `npm run reset:orders`
 - Pantau error & akses: login admin → `/godmode`
 - Log live: `npx wrangler tail`
 - Perbaiki data: Dashboard Cloudflare → D1 → Console
 
-## 📚 Dokumentasi
+## Dokumentasi
 
 - `docs/DEPLOY-CHECKLIST.md` — checklist deploy & monitoring
 - `docs/PRODUCTION.md` — panduan operasional & maintenance
@@ -130,4 +142,4 @@ Script otomatis: build → buat/ambil D1 → migrasi schema → pastikan akun ad
 
 ---
 
-<p align="center">Dibuat dengan 💚 untuk kafe</p>
+<p align="center">Dibuat dengan fokus pada kesederhanaan dan kemudahan pemakaian.</p>

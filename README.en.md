@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://salad-yook.web.id" target="_blank" rel="noopener">
+    <img alt="View Live" src="https://img.shields.io/badge/View%20Live-salad--yook.web.id-2d5a27?style=for-the-badge" />
+  </a>
+</p>
+
+<p align="center">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" />
   <img alt="React" src="https://img.shields.io/badge/React%2019-20232A?style=flat-square&logo=react&logoColor=61DAFB" />
   <img alt="Vite" src="https://img.shields.io/badge/Vite-646CFF?style=flat-square&logo=vite&logoColor=white" />
