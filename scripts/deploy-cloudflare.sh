@@ -59,6 +59,25 @@ if [ "$HAS_COL" = "0" ]; then
 fi
 npx wrangler d1 execute "$DB_NAME" --remote --command "UPDATE orders SET status='siap_diambil' WHERE status='siap_diantar';"
 
+# Kolom orders.archived_at (soft-reset / arsip pesanan) - tambah jika belum ada
+HAS_COL=$(npx wrangler d1 execute "$DB_NAME" --remote --json --command "SELECT COUNT(*) AS n FROM pragma_table_info('orders') WHERE name='archived_at';" 2>/dev/null \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['results'][0]['n'])" 2>/dev/null || echo "1")
+if [ "$HAS_COL" = "0" ]; then
+  echo "  Menambahkan kolom orders.archived_at..."
+  npx wrangler d1 execute "$DB_NAME" --remote --command "ALTER TABLE orders ADD COLUMN archived_at TEXT;"
+fi
+
+# Tabel monthly_totals (cadangan rekap bulanan saat reset --hard) - buat jika belum ada
+npx wrangler d1 execute "$DB_NAME" --remote --command "CREATE TABLE IF NOT EXISTS monthly_totals (month TEXT PRIMARY KEY, revenue REAL NOT NULL DEFAULT 0, order_count INTEGER NOT NULL DEFAULT 0, qris_revenue REAL NOT NULL DEFAULT 0, cash_revenue REAL NOT NULL DEFAULT 0);" >/dev/null 2>&1 || true
+
+# Kolom menu.variants (varian harga Ice/Hot) - tambah jika belum ada
+HAS_COL=$(npx wrangler d1 execute "$DB_NAME" --remote --json --command "SELECT COUNT(*) AS n FROM pragma_table_info('menu') WHERE name='variants';" 2>/dev/null \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['results'][0]['n'])" 2>/dev/null || echo "1")
+if [ "$HAS_COL" = "0" ]; then
+  echo "  Menambahkan kolom menu.variants..."
+  npx wrangler d1 execute "$DB_NAME" --remote --command "ALTER TABLE menu ADD COLUMN variants TEXT NOT NULL DEFAULT '';"
+fi
+
 # Kolom statistik akses (mobile/desktop/tablet/bot) - tambah jika belum ada
 for COL in mobile desktop tablet bot; do
   HAS_COL=$(npx wrangler d1 execute "$DB_NAME" --remote --json --command "SELECT COUNT(*) AS n FROM pragma_table_info('daily_stats') WHERE name='$COL';" 2>/dev/null \
@@ -69,12 +88,23 @@ for COL in mobile desktop tablet bot; do
   fi
 done
 
+# Kolom daily_stats.devices (label perangkat per IP) - tambah jika belum ada
+HAS_COL=$(npx wrangler d1 execute "$DB_NAME" --remote --json --command "SELECT COUNT(*) AS n FROM pragma_table_info('daily_stats') WHERE name='devices';" 2>/dev/null \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['results'][0]['n'])" 2>/dev/null || echo "1")
+if [ "$HAS_COL" = "0" ]; then
+  echo "  Menambahkan kolom daily_stats.devices..."
+  npx wrangler d1 execute "$DB_NAME" --remote --command "ALTER TABLE daily_stats ADD COLUMN devices TEXT NOT NULL DEFAULT '[]';"
+fi
+
 # Pastikan akun admin monitoring ada (role admin, lihat Log & Aktivitas)
 # Sandi awal acak - nilai asli di file lokal .credentials.local (TIDAK di repo)
 npx wrangler d1 execute "$DB_NAME" --remote --command "INSERT OR IGNORE INTO users (id, username, name, role, email, password, created_at) VALUES ('user-admin','admin','Admin (Monitoring)','admin','','pbkdf2:100000:2055f2fa44348564e891faef437b63bf:2c428efa23c625194667669c5c12a12a2d3e08cfb693ed26ba2a24b4c7610283', datetime('now'));" >/dev/null 2>&1 || true
 
 # Seed akun awal (owner/kasir) - INSERT OR IGNORE, aman dijalankan ulang
 npx wrangler d1 execute "$DB_NAME" --remote --file=server/seed.sql
+
+# Nama tampilan default akun owner/kasir (idempotent, untuk DB yang sudah ada)
+npx wrangler d1 execute "$DB_NAME" --remote --command "UPDATE users SET name='owner' WHERE id='user-owner'; UPDATE users SET name='kasir' WHERE id='user-kasir-1';" >/dev/null 2>&1 || true
 
 echo "=== 6/6 Deploy ==="
 npx wrangler deploy

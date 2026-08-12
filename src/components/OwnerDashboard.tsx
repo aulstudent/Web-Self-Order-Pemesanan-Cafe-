@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { MenuItem, Order, CafeSettings, UserAccount, Role, MenuCategory, ReportData, AppLog, MAX_TABLES } from '../types';
+import { MenuItem, Order, CafeSettings, UserAccount, Role, MenuCategory, MenuVariant, ReportData, AppLog, MAX_TABLES } from '../types';
 import { 
   TrendingUp, Users, Coffee, Settings, Plus, Edit, Trash2, Check, X, 
   MapPin, Phone, CreditCard, DollarSign, BarChart2, Calendar, FileText, 
   AlertCircle, ChevronRight, HelpCircle, Eye, Printer, LayoutGrid, CheckCircle2, Clock, RefreshCw,
-  Smartphone, Monitor, Tablet, Bot, Server, Globe, ShieldCheck
+  Smartphone, Monitor, Tablet, Bot, Server, Globe, ShieldCheck, Utensils, Cake, Cookie
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch } from '../utils/api';
@@ -54,6 +54,7 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
   const [menuFormDescription, setMenuFormDescription] = useState<string>('');
   const [menuFormImageUrl, setMenuFormImageUrl] = useState<string>('');
   const [menuFormAvailable, setMenuFormAvailable] = useState<boolean>(true);
+  const [menuFormVariants, setMenuFormVariants] = useState<MenuVariant[]>([]);
 
   // Report period state
   const [reportPeriod, setReportPeriod] = useState<string>('daily');
@@ -84,7 +85,7 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
   const [logLevelFilter, setLogLevelFilter] = useState<string>('semua');
 
   // Akses & info server (khusus admin)
-  const [accessStats, setAccessStats] = useState<{ requests: number; uniqueVisitors: number; orders: number; mobile: number; desktop: number; tablet: number; bot: number } | null>(null);
+  const [accessStats, setAccessStats] = useState<{ requests: number; uniqueVisitors: number; orders: number; mobile: number; desktop: number; tablet: number; bot: number; devices: { ip: string; device: string; isBot: boolean; count: number; lastSeen: string }[] } | null>(null);
   const [serverInfo, setServerInfo] = useState<any>(null);
 
   const navTabs = [
@@ -233,6 +234,7 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
       setMenuFormDescription(item.description);
       setMenuFormImageUrl(item.imageUrl);
       setMenuFormAvailable(item.isAvailable);
+      setMenuFormVariants(item.variants?.length ? item.variants.map(v => ({ ...v })) : []);
     } else {
       setEditingMenuItem(null);
       setMenuFormName('');
@@ -241,6 +243,7 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
       setMenuFormDescription('');
       setMenuFormImageUrl('');
       setMenuFormAvailable(true);
+      setMenuFormVariants([]);
     }
     setIsMenuModalOpen(true);
     setError('');
@@ -249,7 +252,11 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
 
   const handleSaveMenu = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!menuFormName.trim() || !menuFormPrice.trim()) {
+    const cleanVariants = menuFormVariants
+      .filter(v => v.label.trim() && v.price > 0)
+      .map(v => ({ label: v.label.trim(), price: v.price, isAvailable: v.isAvailable !== false }));
+
+    if (!menuFormName.trim() || (cleanVariants.length === 0 && !menuFormPrice.trim())) {
       setError('Nama menu dan harga harus diisi!');
       return;
     }
@@ -257,10 +264,11 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
     const payload = {
       name: menuFormName.trim(),
       category: menuFormCategory,
-      price: Number(menuFormPrice),
+      price: cleanVariants.length ? cleanVariants[0].price : Number(menuFormPrice),
       description: menuFormDescription.trim(),
       imageUrl: menuFormImageUrl.trim(),
-      isAvailable: menuFormAvailable
+      isAvailable: menuFormAvailable,
+      variants: cleanVariants.length ? cleanVariants : undefined
     };
 
     try {
@@ -487,7 +495,8 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
     // Category Sales breakdown
     let makananCount = 0;
     let minumanCount = 0;
-    let cemilanCount = 0;
+    let kudapanCount = 0;
+    let dessertCount = 0;
 
     reportCompleted.forEach(o => {
       o.items.forEach(it => {
@@ -495,7 +504,8 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
         if (item) {
           if (item.category === 'makanan') makananCount += it.quantity;
           else if (item.category === 'minuman') minumanCount += it.quantity;
-          else if (item.category === 'cemilan') cemilanCount += it.quantity;
+          else if (item.category === 'kudapan') kudapanCount += it.quantity;
+          else if (item.category === 'dessert') dessertCount += it.quantity;
         }
       });
     });
@@ -505,7 +515,7 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
       monthlyRevenue: reportData ? reportTotalRevenue : monthlyRevenue,
       totalOrdersCount: reportData ? reportTotalOrders : orders.length,
       staffCount: users.length,
-      categorySales: { makanan: makananCount, minuman: minumanCount, cemilan: cemilanCount },
+      categorySales: { makanan: makananCount, minuman: minumanCount, kudapan: kudapanCount, dessert: dessertCount },
       reportTotalRevenue,
       reportTotalOrders,
       reportQrisRevenue,
@@ -647,23 +657,24 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-h-screen">
         {/* Header */}
-        <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-6 md:px-8 shadow-xs">
-          <div className="flex items-center gap-3">
+        <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between gap-2 px-4 md:px-8 shadow-xs">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-brand-badge-border shadow-sm shrink-0 hidden sm:block">
               <img src="/logo.png" alt="" className="w-full h-full object-cover" />
             </div>
-            <div className="flex flex-col">
-              <h2 className="text-base md:text-lg font-black text-gray-900 tracking-tight">{settings.name}</h2>
+            <div className="flex flex-col min-w-0">
+              <h2 className="text-base md:text-lg font-black text-gray-900 tracking-tight truncate">{settings.name}</h2>
               <p className="text-[10px] md:text-xs text-gray-500 font-medium truncate max-w-[200px] md:max-w-md">{settings.address || 'Jl. Senopati No. 42, Jakarta'}</p>
             </div>
           </div>
-          <div className="flex gap-3 items-center">
-            <div className="bg-brand-badge-bg text-brand-forest px-2.5 py-1 rounded-lg flex items-center text-[10px] md:text-xs font-bold border border-brand-badge-border">
-              <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-              Real-time Sync Active
+          <div className="flex gap-1.5 sm:gap-3 items-center justify-end min-w-0 flex-wrap">
+            <div className="bg-brand-badge-bg text-brand-forest px-2.5 py-1 rounded-lg flex items-center text-[10px] md:text-xs font-bold border border-brand-badge-border shrink-0">
+              <span className="w-2 h-2 bg-green-500 rounded-full mr-1.5 animate-pulse shrink-0"></span>
+              <span className="md:hidden" title="Real-time Sync Active">Sync</span>
+              <span className="hidden md:inline">Real-time Sync Active</span>
             </div>
-            <div className="bg-brand-badge-bg text-brand-forest px-2.5 py-1 rounded-lg flex items-center text-[10px] md:text-xs font-bold border border-brand-badge-border gap-1.5">
-              <Clock size={14} />
+            <div className="bg-brand-badge-bg text-brand-forest px-2.5 py-1 rounded-lg flex items-center text-[10px] md:text-xs font-bold border border-brand-badge-border gap-1.5 shrink-0">
+              <Clock size={14} className="shrink-0" />
               {currentTime}
             </div>
           </div>
@@ -875,11 +886,12 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
 
                 <div className="space-y-4 pt-2">
                   {[
-                    { label: 'Makanan Utama', count: metrics.categorySales.makanan, color: 'bg-red-500', bg: 'bg-red-50' },
-                    { label: 'Minuman Segar', count: metrics.categorySales.minuman, color: 'bg-blue-500', bg: 'bg-blue-50' },
-                    { label: 'Cemilan & Pastry', count: metrics.categorySales.cemilan, color: 'bg-amber-500', bg: 'bg-amber-50' }
+                    { label: 'Food Menu', count: metrics.categorySales.makanan, color: 'bg-red-500', bg: 'bg-red-50' },
+                    { label: 'Kudapan', count: metrics.categorySales.kudapan, color: 'bg-amber-500', bg: 'bg-amber-50' },
+                    { label: 'Dessert', count: metrics.categorySales.dessert, color: 'bg-purple-500', bg: 'bg-purple-50' },
+                    { label: 'Minuman', count: metrics.categorySales.minuman, color: 'bg-blue-500', bg: 'bg-blue-50' }
                   ].map((cat, idx) => {
-                    const total = metrics.categorySales.makanan + metrics.categorySales.minuman + metrics.categorySales.cemilan || 1;
+                    const total = metrics.categorySales.makanan + metrics.categorySales.minuman + metrics.categorySales.kudapan + metrics.categorySales.dessert || 1;
                     const percent = Math.round((cat.count / total) * 100);
 
                     return (
@@ -927,12 +939,18 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {menu.map(item => (
                 <div key={item.id} className="bg-white rounded-2xl border border-slate-150 p-4 flex gap-3.5 shadow-sm">
-                  <img
-                    src={item.imageUrl}
-                    alt={item.name}
-                    referrerPolicy="no-referrer"
-                    className="w-20 h-20 rounded-xl object-cover bg-slate-50 border border-slate-100"
-                  />
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      alt={item.name}
+                      referrerPolicy="no-referrer"
+                      className="w-20 h-20 rounded-xl object-cover bg-slate-50 border border-slate-100"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-xl flex items-center justify-center bg-slate-50 border border-slate-100 text-slate-300">
+                      {item.category === 'makanan' ? <Utensils size={26} strokeWidth={1.6} /> : item.category === 'kudapan' ? <Cookie size={26} strokeWidth={1.6} /> : item.category === 'dessert' ? <Cake size={26} strokeWidth={1.6} /> : <Coffee size={26} strokeWidth={1.6} />}
+                    </div>
+                  )}
                   
                   <div className="flex-1 flex flex-col justify-between min-w-0">
                     <div>
@@ -940,12 +958,25 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
                         <h4 className="font-bold text-slate-800 text-sm leading-tight truncate">{item.name}</h4>
                         <span className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${
                           item.category === 'makanan' ? 'bg-red-50 text-red-600' :
-                          item.category === 'minuman' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'
+                          item.category === 'minuman' ? 'bg-blue-50 text-blue-600' :
+                          item.category === 'kudapan' ? 'bg-amber-50 text-amber-600' : 'bg-purple-50 text-purple-600'
                         }`}>
-                          {item.category}
+                          {item.category === 'makanan' ? 'Food Menu' : item.category === 'minuman' ? 'Minuman' : item.category === 'kudapan' ? 'Kudapan' : 'Dessert'}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-500 mt-1 line-clamp-1 leading-snug">{item.description}</p>
+                      {item.variants && item.variants.length > 0 && (
+                        <div className="flex gap-1 mt-1.5 flex-wrap">
+                          {item.variants.map(v => {
+                            const vOut = v.isAvailable === false;
+                            return (
+                              <span key={v.label} className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${vOut ? 'bg-red-50 text-red-500 line-through' : 'bg-emerald-50 text-emerald-700'}`}>
+                                {v.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-50">
@@ -1028,17 +1059,15 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
                           {u.role}123 <span className="text-[10px] text-slate-400/70">(cth: {u.role}123)</span>
                         </td>
                         <td className="p-4 text-center">
-                          {u.id === 'user-owner' ? (
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Sistem Utama</span>
-                          ) : (
-                            <div className="flex items-center justify-center gap-2">
-                              <button
-                                onClick={() => openStaffModal(u)}
-                                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-950 rounded-lg transition-all"
-                                title="Edit Staf"
-                              >
-                                <Edit size={12} />
-                              </button>
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => openStaffModal(u)}
+                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-950 rounded-lg transition-all"
+                              title="Edit Staf"
+                            >
+                              <Edit size={12} />
+                            </button>
+                            {u.id !== 'user-owner' && (
                               <button
                                 onClick={() => handleDeleteStaff(u.id)}
                                 className="p-1.5 bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded-lg transition-all"
@@ -1046,8 +1075,11 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
                               >
                                 <Trash2 size={12} />
                               </button>
-                            </div>
-                          )}
+                            )}
+                            {u.id === 'user-owner' && (
+                              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Sistem Utama</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1462,6 +1494,32 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
                 })()}
               </div>
             </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 space-y-3">
+              <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider flex items-center gap-1.5">
+                <Smartphone size={15} className="text-brand-forest" /> Detail Perangkat (per IP)
+              </h3>
+              <p className="text-[10px] text-slate-400">Label perangkat terdeteksi dari User-Agent tiap IP unik, diurutkan dari request terbanyak.</p>
+              {!accessStats?.devices?.length ? (
+                <p className="text-xs text-slate-400 italic">Belum ada data perangkat.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {accessStats.devices.slice(0, 20).map((d, idx) => (
+                    <div key={idx} className="flex items-center justify-between py-2 text-xs gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono text-[10px] bg-slate-100 rounded px-1.5 py-0.5 text-slate-600">{d.ip}</span>
+                        {d.isBot && (
+                          <span className="text-[9px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full uppercase">Bot</span>
+                        )}
+                      </div>
+                      <span className="font-semibold text-slate-700 truncate">{d.device}</span>
+                      <span className="text-slate-400 font-bold">{(d.count || 0).toLocaleString('id-ID')}×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-400">Menampilkan 20 IP tersibuk dari hari ini.</p>
+            </div>
           </div>
         )}
 
@@ -1576,9 +1634,10 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
                       onChange={(e) => setMenuFormCategory(e.target.value as MenuCategory)}
                       className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800"
                     >
-                      <option value="makanan">Makanan</option>
+                      <option value="makanan">Food Menu</option>
+                      <option value="kudapan">Kudapan</option>
+                      <option value="dessert">Dessert</option>
                       <option value="minuman">Minuman</option>
-                      <option value="cemilan">Cemilan/Cakes</option>
                     </select>
                   </div>
 
@@ -1592,6 +1651,73 @@ export default function OwnerDashboard({ settings, menu, onLogout, onRefreshData
                       className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800"
                     />
                   </div>
+                </div>
+
+                <div className="bg-emerald-50/40 border border-emerald-100 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-500 uppercase tracking-wider text-xs font-bold">Varian Harga (opsional)</label>
+                    <button
+                      type="button"
+                      onClick={() => setMenuFormVariants(prev => [...prev, { label: '', price: 0 }])}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus size={12} /> Tambah Varian
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400">Contoh: Ice & Hot dengan harga berbeda. Jika diisi, pelanggan wajib memilih varian.</p>
+                  {menuFormVariants.length === 0 && (
+                    <p className="text-[11px] text-slate-500">Belum ada varian. Harga tunggal cukup di kolom "Harga".</p>
+                  )}
+                  {menuFormVariants.map((variant, vIdx) => {
+                    const vAvail = variant.isAvailable !== false;
+                    return (
+                    <div key={vIdx} className="bg-slate-50 border border-slate-100 rounded-lg p-2 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={variant.label}
+                          onChange={(e) => setMenuFormVariants(prev => prev.map((vv, i) => i === vIdx ? { ...vv, label: e.target.value } : vv))}
+                          placeholder="Label (cth: Ice)"
+                          className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 text-xs"
+                        />
+                        <input
+                          type="number"
+                          value={variant.price || ''}
+                          onChange={(e) => setMenuFormVariants(prev => prev.map((vv, i) => i === vIdx ? { ...vv, price: Number(e.target.value) || 0 } : vv))}
+                          placeholder="Harga"
+                          className="w-28 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setMenuFormVariants(prev => prev.filter((_, i) => i !== vIdx))}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg cursor-pointer"
+                          title="Hapus varian"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between pl-1">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Stok</span>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setMenuFormVariants(prev => prev.map((vv, i) => i === vIdx ? { ...vv, isAvailable: true } : vv))}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${vAvail ? 'bg-green-600 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:bg-green-50'}`}
+                          >
+                            Tersedia
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMenuFormVariants(prev => prev.map((vv, i) => i === vIdx ? { ...vv, isAvailable: false } : vv))}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${!vAvail ? 'bg-red-600 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:bg-red-50'}`}
+                          >
+                            Habis
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    );
+                  })}
                 </div>
 
                 <div className="space-y-1.5">

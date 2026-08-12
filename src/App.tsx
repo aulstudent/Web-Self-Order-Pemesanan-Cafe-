@@ -193,6 +193,7 @@ export default function App() {
             <CashierDashboard
               settings={fallbackSettings}
               onLogout={handleLogout}
+              user={activeUser}
             />
           );
         default:

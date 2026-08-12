@@ -93,7 +93,7 @@ async function capture() {
     // 4. Login godmode admin
     const gPage = await desktop.newPage();
     await gPage.goto(`${BASE}/godmode`, { waitUntil: 'domcontentloaded' });
-    await gPage.waitForSelector('text=Godmode Admin Monitoring', { timeout: 15000 });
+    await gPage.waitForSelector('text=Admin Monitoring', { timeout: 15000 });
     await gPage.waitForTimeout(400);
     await gPage.screenshot({ path: path.join(OUT_DIR, 'godmode-login.png'), fullPage: true });
     console.log('✓ godmode-login.png');
@@ -131,7 +131,7 @@ async function capture() {
     await gifPage.waitForTimeout(700);
     await gifPage.getByRole('button', { name: /Bayar & Pesan/ }).click(); // buka drawer
     await gifPage.waitForTimeout(1200);
-    await gifPage.getByRole('button', { name: /Konfirmasi Pesanan|Meja|close|Tutup/i }).first().click().catch(() => {});
+    await gifPage.getByRole('button', { name: /Konfirmasi Pesanan|Meja|close|Tutup/i }).first().click().catch(() => { });
     await gifPage.waitForTimeout(600);
   } finally {
     await gifCtx.close();
@@ -149,7 +149,7 @@ async function capture() {
       ).trim();
       const dur = parseFloat(probe);
       if (Number.isFinite(dur) && dur > 16) ss = (dur - 13).toFixed(2);
-    } catch {}
+    } catch { }
     execSync(
       `ffmpeg -y -ss ${ss} -t 13 -i "${webm}" -vf "fps=12,scale=390:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" -loop 0 "${gif}"`,
       { stdio: ['ignore', 'ignore', 'inherit'] }

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS menu (
   description TEXT NOT NULL DEFAULT '',
   image_url TEXT NOT NULL DEFAULT '',
   is_available INTEGER NOT NULL DEFAULT 1,
+  variants TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_method TEXT NOT NULL,
   status TEXT NOT NULL,
   additional_amount INTEGER NOT NULL DEFAULT 0,
+  archived_at TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -53,7 +55,8 @@ CREATE TABLE IF NOT EXISTS daily_stats (
   mobile INTEGER NOT NULL DEFAULT 0,
   desktop INTEGER NOT NULL DEFAULT 0,
   tablet INTEGER NOT NULL DEFAULT 0,
-  bot INTEGER NOT NULL DEFAULT 0
+  bot INTEGER NOT NULL DEFAULT 0,
+  devices TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS app_logs (

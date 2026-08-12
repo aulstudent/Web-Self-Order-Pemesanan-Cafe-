@@ -12,7 +12,13 @@ export interface UserAccount {
   createdAt: string;
 }
 
-export type MenuCategory = 'makanan' | 'minuman' | 'cemilan';
+export type MenuCategory = 'makanan' | 'minuman' | 'kudapan' | 'dessert';
+
+export interface MenuVariant {
+  label: string;
+  price: number;
+  isAvailable?: boolean;
+}
 
 export interface MenuItem {
   id: string;
@@ -23,6 +29,7 @@ export interface MenuItem {
   imageUrl: string;
   isAvailable: boolean;
   createdAt: string;
+  variants?: MenuVariant[];
 }
 
 export interface OrderItem {
@@ -31,6 +38,7 @@ export interface OrderItem {
   price: number;
   quantity: number;
   notes?: string;
+  variant?: string;
   isCancelled?: boolean;
   cancelledAt?: string;
   isAdditional?: boolean;
@@ -49,6 +57,7 @@ export interface Order {
   status: OrderStatus;
   createdAt: string;
   additionalAmount?: number;
+  archivedAt?: string;
 }
 
 export interface CafeSettings {

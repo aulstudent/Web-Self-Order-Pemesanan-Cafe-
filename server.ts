@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { CafeSettings, MenuItem, Order, UserAccount, OrderItem, AppLog } from './src/types';
+import { MENUS } from './server/menu-data';
 import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -124,6 +125,7 @@ interface DailyStat {
   desktop: number;
   tablet: number;
   bot: number;
+  devices: { ip: string; device: string; isBot: boolean; count: number; lastSeen: string }[];
 }
 
 sqlite.exec(`CREATE TABLE IF NOT EXISTS daily_stats (
@@ -134,12 +136,20 @@ sqlite.exec(`CREATE TABLE IF NOT EXISTS daily_stats (
   mobile INTEGER NOT NULL DEFAULT 0,
   desktop INTEGER NOT NULL DEFAULT 0,
   tablet INTEGER NOT NULL DEFAULT 0,
-  bot INTEGER NOT NULL DEFAULT 0
+  bot INTEGER NOT NULL DEFAULT 0,
+  devices TEXT NOT NULL DEFAULT '[]'
 )`);
 
-const upsertStatStmt = sqlite.prepare(`INSERT OR REPLACE INTO daily_stats (date, requests, unique_ips, orders, mobile, desktop, tablet, bot)
-  VALUES (@date, @requests, @unique_ips, @orders, @mobile, @desktop, @tablet, @bot)`);
-const selectStatStmt = sqlite.prepare(`SELECT date, requests, unique_ips, orders, mobile, desktop, tablet, bot FROM daily_stats WHERE date = ?`);
+try {
+  const cols = sqlite.pragma("table_info(daily_stats)") as { name: string }[];
+  if (!cols.some(c => c.name === 'devices')) {
+    sqlite.exec(`ALTER TABLE daily_stats ADD COLUMN devices TEXT NOT NULL DEFAULT '[]'`);
+  }
+} catch {}
+
+const upsertStatStmt = sqlite.prepare(`INSERT OR REPLACE INTO daily_stats (date, requests, unique_ips, orders, mobile, desktop, tablet, bot, devices)
+  VALUES (@date, @requests, @unique_ips, @orders, @mobile, @desktop, @tablet, @bot, @devices)`);
+const selectStatStmt = sqlite.prepare(`SELECT date, requests, unique_ips, orders, mobile, desktop, tablet, bot, devices FROM daily_stats WHERE date = ?`);
 
 let cachedDailyStats: DailyStat | null = null;
 let statsSaveTimer: NodeJS.Timeout | null = null;
@@ -156,6 +166,35 @@ function classifyUa(ua: string): { device: 'mobile' | 'desktop' | 'tablet'; isBo
   return { device: 'desktop', isBot };
 }
 
+function deviceLabel(ua: string): string {
+  const s = (ua || '').toLowerCase();
+  const bots: [RegExp, string][] = [
+    [/googlebot|google-extended/i, 'Googlebot'], [/bingbot|bingpreview/i, 'Bingbot'],
+    [/facebookexternalhit|facebook/i, 'Facebook'], [/twitterbot/i, 'Twitterbot'],
+    [/gptbot|chatgpt/i, 'GPTBot'], [/claude/i, 'ClaudeBot'], [/anthropic/i, 'Anthropic'],
+    [/openai/i, 'OpenAI'], [/gemini|bard/i, 'Google Gemini'], [/yandex/i, 'Yandex'],
+    [/baiduspider/i, 'Baidu'], [/duckduck/i, 'DuckDuckGo'], [/telegrambot/i, 'Telegram']
+  ];
+  for (const [re, name] of bots) if (re.test(s)) return `${name} (bot)`;
+  let os = 'Perangkat';
+  if (s.includes('iphone')) os = 'iPhone';
+  else if (s.includes('ipad')) os = 'iPad';
+  else if (s.includes('android')) os = 'Android';
+  else if (s.includes('mac os') || s.includes('macintosh')) os = 'macOS';
+  else if (s.includes('windows')) os = 'Windows';
+  else if (s.includes('linux')) os = 'Linux';
+  let br = 'Browser';
+  if (s.includes('edg/') || s.includes('edge')) br = 'Edge';
+  else if (s.includes('chrome')) br = 'Chrome';
+  else if (s.includes('firefox')) br = 'Firefox';
+  else if (s.includes('safari') && !s.includes('chrome')) br = 'Safari';
+  else if (s.includes('postman')) br = 'Postman';
+  else if (s.includes('curl')) br = 'curl';
+  else if (s.includes('python')) br = 'Python';
+  else if (s.includes('okhttp')) br = 'OkHttp';
+  return (os === 'Perangkat' && br === 'Browser') ? 'Browser lain' : `${os} • ${br}`;
+}
+
 function getTodayStat(): DailyStat {
   const today = todayKey();
   if (cachedDailyStats && cachedDailyStats.date === today) return cachedDailyStats;
@@ -166,14 +205,17 @@ function getTodayStat(): DailyStat {
         uniqueIps: JSON.parse(row.unique_ips || '[]'), orders: row.orders,
         mobile: row.mobile || 0, desktop: row.desktop || 0,
         tablet: row.tablet || 0, bot: row.bot || 0,
+        devices: (() => { try { return JSON.parse(row.devices || '[]'); } catch { return []; } })(),
       }
-    : { date: today, requests: 0, uniqueIps: [], orders: 0, mobile: 0, desktop: 0, tablet: 0, bot: 0 };
+    : { date: today, requests: 0, uniqueIps: [], orders: 0, mobile: 0, desktop: 0, tablet: 0, bot: 0, devices: [] };
   return cachedDailyStats;
 }
 
 function trackRequest(ip: string, ua?: string) {
   const stat = getTodayStat();
   const cls = classifyUa(ua || '');
+  const label = deviceLabel(ua || '');
+  const ts = new Date().toISOString();
   stat.requests += 1;
   if (cls.device === 'mobile') stat.mobile += 1;
   else if (cls.device === 'tablet') stat.tablet += 1;
@@ -182,11 +224,14 @@ function trackRequest(ip: string, ua?: string) {
   if (ip && !stat.uniqueIps.includes(ip)) {
     stat.uniqueIps.push(ip);
   }
+  const ent = stat.devices.find((x) => x.ip === ip);
+  if (ent) { ent.count += 1; ent.lastSeen = ts; ent.device = label; ent.isBot = ent.isBot || cls.isBot; }
+  else { stat.devices.push({ ip, device: label, isBot: cls.isBot, count: 1, lastSeen: ts }); }
   if (statsSaveTimer) return;
   statsSaveTimer = setTimeout(() => {
     statsSaveTimer = null;
     const s = getTodayStat();
-    upsertStatStmt.run({ date: s.date, requests: s.requests, unique_ips: JSON.stringify(s.uniqueIps), orders: s.orders, mobile: s.mobile, desktop: s.desktop, tablet: s.tablet, bot: s.bot });
+    upsertStatStmt.run({ date: s.date, requests: s.requests, unique_ips: JSON.stringify(s.uniqueIps), orders: s.orders, mobile: s.mobile, desktop: s.desktop, tablet: s.tablet, bot: s.bot, devices: JSON.stringify(s.devices) });
   }, 5000);
 }
 
@@ -194,7 +239,7 @@ function trackOrder() {
   const stat = getTodayStat();
   stat.orders += 1;
   const s = getTodayStat();
-  upsertStatStmt.run({ date: s.date, requests: s.requests, unique_ips: JSON.stringify(s.uniqueIps), orders: s.orders, mobile: s.mobile, desktop: s.desktop, tablet: s.tablet, bot: s.bot });
+  upsertStatStmt.run({ date: s.date, requests: s.requests, unique_ips: JSON.stringify(s.uniqueIps), orders: s.orders, mobile: s.mobile, desktop: s.desktop, tablet: s.tablet, bot: s.bot, devices: JSON.stringify(s.devices) });
 }
 
 const loginLimiter = rateLimit({
@@ -245,8 +290,8 @@ const hashPassword = (password: string) => bcrypt.hashSync(password, SALT_ROUNDS
 
 // Sandi awal dibuat acak (nilai asli ada di file lokal .credentials.local - TIDAK di repo)
 const defaultUsers: UserAccount[] = [
-  { id: 'user-owner', username: 'owner', name: 'Jokowi (Owner)', role: 'owner', password: '$2b$10$p.yISoiM.v0KPpJQlf3jW.78Nlcic6XOkNayErbiIGUIZIiApfAQG', createdAt: new Date().toISOString() },
-  { id: 'user-kasir-1', username: 'kasir', name: 'Budi (Kasir)', role: 'kasir', password: '$2b$10$QmC0VfhmaiAfDDS7QWbMYuo0UGp4qc.NSWb3b9cGPg12OsfQ3noFC', createdAt: new Date().toISOString() },
+  { id: 'user-owner', username: 'owner', name: 'owner', role: 'owner', password: '$2b$10$p.yISoiM.v0KPpJQlf3jW.78Nlcic6XOkNayErbiIGUIZIiApfAQG', createdAt: new Date().toISOString() },
+  { id: 'user-kasir-1', username: 'kasir', name: 'kasir', role: 'kasir', password: '$2b$10$QmC0VfhmaiAfDDS7QWbMYuo0UGp4qc.NSWb3b9cGPg12OsfQ3noFC', createdAt: new Date().toISOString() },
   { id: 'user-admin', username: 'admin', name: 'Admin (Monitoring)', role: 'admin', password: '$2b$10$ZodUhUpwvki8in.ZDkwTQexyC23WGHRnyfjwkce3q6BnGwsFO4Gnq', createdAt: new Date().toISOString() }
 ];
 
@@ -257,68 +302,7 @@ const getMockDate = (daysAgo: number, hour: number, minute: number): string => {
   return d.toISOString();
 };
 
-const defaultMenu: MenuItem[] = [
-  {
-    id: 'menu-1',
-    name: "Nasi Goreng Kecombrang",
-    category: 'makanan',
-    price: 32000,
-    description: "Nasi goreng harum dengan irisan kecombrang segar, telur mata sapi, kerupuk, dan acar buatan rumah.",
-    imageUrl: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=500&auto=format&fit=crop&q=60",
-    isAvailable: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'menu-2',
-    name: "Spaghetti Pesto Emerald",
-    category: 'makanan',
-    price: 38000,
-    description: "Pasta al dente dengan saus pesto basil segar berwarna hijau cerah, kacang mete, dan taburan keju parmesan.",
-    imageUrl: "https://images.unsplash.com/photo-1546549032-9571cd6b27df?w=500&auto=format&fit=crop&q=60",
-    isAvailable: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'menu-3',
-    name: "Matcha Espresso Latte",
-    category: 'minuman',
-    price: 26000,
-    description: "Perpaduan matcha organik premium, susu segar dingin, dan double shot espresso Arabika.",
-    imageUrl: "https://images.unsplash.com/photo-1536256263959-770b48d82b0a?w=500&auto=format&fit=crop&q=60",
-    isAvailable: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'menu-4',
-    name: "Kopi Susu Pandan Hijau",
-    category: 'minuman',
-    price: 20000,
-    description: "Espresso dingin dipadukan dengan susu kelapa gurih, sirup pandan alami buatan rumah, dan es batu.",
-    imageUrl: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=500&auto=format&fit=crop&q=60",
-    isAvailable: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'menu-5',
-    name: "Croissant Matcha Almond",
-    category: 'cemilan',
-    price: 24000,
-    description: "Croissant mentega berlapis yang renyah dengan isian krim matcha manis dan taburan kacang almond panggang.",
-    imageUrl: "https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=500&auto=format&fit=crop&q=60",
-    isAvailable: true,
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'menu-6',
-    name: "Singkong Crispy Garlic",
-    category: 'cemilan',
-    price: 18000,
-    description: "Singkong merekah yang gurih dan garing, disajikan hangat dengan cocolan bawang putih pedas manis.",
-    imageUrl: "https://images.unsplash.com/photo-1562059390-a761a084768e?w=500&auto=format&fit=crop&q=60",
-    isAvailable: true,
-    createdAt: new Date().toISOString()
-  }
-];
+const defaultMenu: MenuItem[] = MENUS;
 
 const defaultOrders: Order[] = [
   {
@@ -748,9 +732,8 @@ app.post('/api/settings', authMiddleware, requireRole('owner', 'admin'), (req, r
 app.get('/api/menu', (req, res) => {
   cachedJson(req, res, dbState.menu);
 });
-
 app.post('/api/menu', authMiddleware, requireRole('owner', 'kasir'), (req, res) => {
-  const { name, category, price, description, imageUrl, isAvailable } = req.body;
+  const { name, category, price, description, imageUrl, isAvailable, variants } = req.body;
   if (!name || !category || price === undefined) {
     return res.status(400).json({ error: "Nama, kategori, dan harga harus diisi" });
   }
@@ -761,9 +744,10 @@ app.post('/api/menu', authMiddleware, requireRole('owner', 'kasir'), (req, res) 
     category,
     price: Number(price),
     description: description || "",
-    imageUrl: imageUrl || "https://images.unsplash.com/photo-1546549032-9571cd6b27df?w=500&auto=format&fit=crop&q=60",
+    imageUrl: imageUrl || "",
     isAvailable: isAvailable !== undefined ? isAvailable : true,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    variants: Array.isArray(variants) && variants.length ? variants : undefined
   };
 
   dbState.menu.push(newItem);
@@ -774,9 +758,10 @@ app.post('/api/menu', authMiddleware, requireRole('owner', 'kasir'), (req, res) 
 
 app.put('/api/menu/:id', authMiddleware, requireRole('owner', 'kasir'), (req, res) => {
   const { id } = req.params;
-  const { name, category, price, description, imageUrl, isAvailable } = req.body;
+  const { name, category, price, description, imageUrl, isAvailable, variants } = req.body;
 
   const itemIndex = dbState.menu.findIndex(m => m.id === id);
+
   if (itemIndex === -1) {
     return res.status(404).json({ error: "Menu tidak ditemukan" });
   }
@@ -784,9 +769,9 @@ app.put('/api/menu/:id', authMiddleware, requireRole('owner', 'kasir'), (req, re
   const user = (req as any).user as JwtPayload;
   if (user.role !== 'owner') {
     const current = dbState.menu[itemIndex];
-    const originalKeys = { name: current.name, category: current.category, price: current.price, description: current.description, imageUrl: current.imageUrl };
-    const changedKeys = { name, category, price, description: price !== undefined ? undefined : description, imageUrl };
-    if (Object.entries(changedKeys).some(([k, v]) => v !== undefined && v !== (originalKeys as any)[k])) {
+    const originalKeys = { name: current.name, category: current.category, price: current.price, description: current.description, imageUrl: current.imageUrl, variants: current.variants };
+    const changedKeys = { name, category, price, description: price !== undefined ? undefined : description, imageUrl, variants };
+    if (Object.entries(changedKeys).some(([k, v]) => v !== undefined && JSON.stringify(v) !== JSON.stringify((originalKeys as any)[k]))) {
       return res.status(403).json({ error: 'Kasir hanya bisa mengubah status ketersediaan menu' });
     }
   }
@@ -798,12 +783,38 @@ app.put('/api/menu/:id', authMiddleware, requireRole('owner', 'kasir'), (req, re
     price: price !== undefined ? Number(price) : dbState.menu[itemIndex].price,
     description: description !== undefined ? description : dbState.menu[itemIndex].description,
     imageUrl: imageUrl !== undefined ? imageUrl : dbState.menu[itemIndex].imageUrl,
-    isAvailable: isAvailable !== undefined ? isAvailable : dbState.menu[itemIndex].isAvailable
+    isAvailable: isAvailable !== undefined ? isAvailable : dbState.menu[itemIndex].isAvailable,
+    variants: variants !== undefined ? (Array.isArray(variants) && variants.length ? variants : undefined) : dbState.menu[itemIndex].variants
   };
 
   saveDB();
   notifyClientsRefresh();
   res.json({ message: "Menu berhasil diperbarui", item: dbState.menu[itemIndex] });
+});
+
+// Set stok per-varian (kasir/owner) — mis. Ice habis, Hot tersedia
+app.put('/api/menu/:id/variant', authMiddleware, requireRole('owner', 'kasir'), (req, res) => {
+  const { id } = req.params;
+  const { label, isAvailable } = req.body;
+  if (!label || typeof isAvailable !== 'boolean') {
+    return res.status(400).json({ error: "Label dan status varian harus diisi" });
+  }
+  const itemIndex = dbState.menu.findIndex(m => m.id === id);
+  if (itemIndex === -1) {
+    return res.status(404).json({ error: "Menu tidak ditemukan" });
+  }
+  const item = dbState.menu[itemIndex];
+  if (!item.variants || !item.variants.length) {
+    return res.status(404).json({ error: "Varian tidak ditemukan" });
+  }
+  const v = item.variants.find(x => x.label === label);
+  if (!v) {
+    return res.status(404).json({ error: "Varian tidak ditemukan" });
+  }
+  v.isAvailable = isAvailable;
+  saveDB();
+  notifyClientsRefresh();
+  res.json({ message: "Stok varian diperbarui", item: dbState.menu[itemIndex] });
 });
 
 app.delete('/api/menu/:id', authMiddleware, requireRole('owner', 'admin'), (req, res) => {
@@ -949,7 +960,7 @@ app.delete('/api/users/:id', authMiddleware, requireRole('owner', 'admin'), (req
 });
 
 app.get('/api/orders', authMiddleware, requireRole('owner', 'kasir', 'admin'), (req, res) => {
-  cachedJson(req, res, dbState.orders);
+  cachedJson(req, res, dbState.orders.filter(o => !o.archivedAt));
 });
 
 app.get('/api/logs', authMiddleware, requireRole('admin'), (req, res) => {
@@ -996,12 +1007,25 @@ app.post('/api/orders', (req, res) => {
     id = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
 
+  const orderItems: OrderItem[] = items.map((ni: any) => {
+    const m = dbState.menu.find(x => x.id === ni.menuId);
+    if (!m) return { menuId: ni.menuId, name: ni.name || 'Unknown', price: Number(ni.price) || 0, quantity: Number(ni.quantity) || 1, notes: ni.notes || '', variant: ni.variant };
+    let name = ni.name || m.name;
+    let price = Number(ni.price) || m.price;
+    let variant = ni.variant;
+    if (ni.variant && m.variants && m.variants.length) {
+      const v = m.variants.find((x: any) => x.label === ni.variant);
+      if (v) { name = `${m.name} (${v.label})`; price = v.price; }
+    }
+    return { menuId: m.id, name, price, quantity: Number(ni.quantity) || 1, notes: ni.notes || '', variant };
+  });
+
   const newOrder: Order = {
     id,
     customerName,
     tableNumber,
-    items,
-    totalPrice: items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0),
+    items: orderItems,
+    totalPrice: orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0),
     paymentMethod,
     status: 'menunggu_verifikasi',
     additionalAmount: 0,
@@ -1037,6 +1061,9 @@ app.put('/api/orders/:id/status', authMiddleware, requireRole('owner', 'kasir'),
   if (orderIndex === -1) {
     return res.status(404).json({ error: "Pesanan tidak ditemukan" });
   }
+  if ((dbState.orders[orderIndex] as any).archivedAt) {
+    return res.status(400).json({ error: "Pesanan sudah diarsipkan" });
+  }
 
   const currentStatus = dbState.orders[orderIndex].status;
   const allowedTransitions: Record<string, string[]> = {
@@ -1064,14 +1091,18 @@ app.put('/api/orders/:id/status', authMiddleware, requireRole('owner', 'kasir'),
 
 app.put('/api/orders/:id/items/:menuId/cancel', authMiddleware, requireRole('owner', 'kasir'), (req, res) => {
   const { id, menuId } = req.params;
+  const variant = req.query.variant as string | undefined;
 
   const orderIndex = dbState.orders.findIndex(o => o.id === id);
   if (orderIndex === -1) {
     return res.status(404).json({ error: "Pesanan tidak ditemukan" });
   }
+  if ((dbState.orders[orderIndex] as any).archivedAt) {
+    return res.status(400).json({ error: "Pesanan sudah diarsipkan" });
+  }
 
   const order = dbState.orders[orderIndex];
-  const itemIndex = order.items.findIndex(i => i.menuId === menuId && !i.isCancelled);
+  const itemIndex = order.items.findIndex(i => i.menuId === menuId && (i.variant || '') === (variant || '') && !i.isCancelled);
   if (itemIndex === -1) {
     return res.status(404).json({ error: "Item tidak ditemukan atau sudah dibatalkan" });
   }
@@ -1098,14 +1129,18 @@ app.put('/api/orders/:id/items/:menuId/cancel', authMiddleware, requireRole('own
 
 app.put('/api/orders/:id/items/:menuId/uncancel', authMiddleware, requireRole('owner', 'kasir'), (req, res) => {
   const { id, menuId } = req.params;
+  const variant = req.query.variant as string | undefined;
 
   const orderIndex = dbState.orders.findIndex(o => o.id === id);
   if (orderIndex === -1) {
     return res.status(404).json({ error: "Pesanan tidak ditemukan" });
   }
+  if ((dbState.orders[orderIndex] as any).archivedAt) {
+    return res.status(400).json({ error: "Pesanan sudah diarsipkan" });
+  }
 
   const order = dbState.orders[orderIndex];
-  const itemIndex = order.items.findIndex(i => i.menuId === menuId && i.isCancelled);
+  const itemIndex = order.items.findIndex(i => i.menuId === menuId && (i.variant || '') === (variant || '') && i.isCancelled);
   if (itemIndex === -1) {
     return res.status(404).json({ error: "Item tidak ditemukan atau tidak dibatalkan" });
   }
@@ -1136,6 +1171,9 @@ app.put('/api/orders/:id/cancel', authMiddleware, requireRole('owner', 'kasir'),
   if (orderIndex === -1) {
     return res.status(404).json({ error: "Pesanan tidak ditemukan" });
   }
+  if ((dbState.orders[orderIndex] as any).archivedAt) {
+    return res.status(400).json({ error: "Pesanan sudah diarsipkan" });
+  }
 
   const order = dbState.orders[orderIndex];
   order.status = 'dibatalkan';
@@ -1155,6 +1193,9 @@ app.delete('/api/orders/:id', authMiddleware, requireRole('owner', 'kasir'), (re
   if (orderIndex === -1) {
     return res.status(404).json({ error: "Pesanan tidak ditemukan" });
   }
+  if ((dbState.orders[orderIndex] as any).archivedAt) {
+    return res.status(400).json({ error: "Pesanan sudah diarsipkan" });
+  }
 
   const deleted = dbState.orders.splice(orderIndex, 1);
   saveDB();
@@ -1163,14 +1204,18 @@ app.delete('/api/orders/:id', authMiddleware, requireRole('owner', 'kasir'), (re
 
 app.delete('/api/orders/:id/items/:menuId', authMiddleware, requireRole('owner', 'kasir'), (req, res) => {
   const { id, menuId } = req.params;
+  const variant = req.query.variant as string | undefined;
 
   const orderIndex = dbState.orders.findIndex(o => o.id === id);
   if (orderIndex === -1) {
     return res.status(404).json({ error: "Pesanan tidak ditemukan" });
   }
+  if ((dbState.orders[orderIndex] as any).archivedAt) {
+    return res.status(400).json({ error: "Pesanan sudah diarsipkan" });
+  }
 
   const order = dbState.orders[orderIndex];
-  const itemIndex = order.items.findIndex(i => i.menuId === menuId);
+  const itemIndex = order.items.findIndex(i => i.menuId === menuId && (i.variant || '') === (variant || ''));
   if (itemIndex === -1) {
     return res.status(404).json({ error: "Item tidak ditemukan" });
   }
@@ -1201,6 +1246,9 @@ app.post('/api/orders/:id/items', (req, res) => {
   const orderIndex = dbState.orders.findIndex(o => o.id === id);
   if (orderIndex === -1) {
     return res.status(404).json({ error: "Pesanan tidak ditemukan" });
+  }
+  if ((dbState.orders[orderIndex] as any).archivedAt) {
+    return res.status(400).json({ error: "Pesanan sudah diarsipkan" });
   }
 
   const order = dbState.orders[orderIndex];
@@ -1239,7 +1287,29 @@ app.post('/api/orders/:id/items', (req, res) => {
       return res.status(400).json({ error: `${menuItem.name} sedang tidak tersedia` });
     }
     const quantity = Math.max(1, Math.floor(Number(ni.quantity) || 1));
-    itemsToAdd.push({ menuId: menuItem.id, name: menuItem.name, price: menuItem.price, quantity, notes: ni.notes || '', isAdditional: isPaid });
+    let name = menuItem.name;
+    let price = menuItem.price;
+    let variant: string | undefined;
+    if (ni.variant && menuItem.variants && menuItem.variants.length) {
+      const v = menuItem.variants.find((x: any) => x.label === ni.variant);
+      if (v) {
+        if (v.isAvailable === false) {
+          return res.status(400).json({ error: `${menuItem.name} (${v.label}) sedang habis` });
+        }
+        variant = v.label;
+        name = `${menuItem.name} (${v.label})`;
+        price = v.price;
+      }
+    } else if (menuItem.variants && menuItem.variants.length) {
+      const first = menuItem.variants[0];
+      if (first.isAvailable === false) {
+        return res.status(400).json({ error: `${menuItem.name} (${first.label}) sedang habis` });
+      }
+      variant = first.label;
+      name = `${menuItem.name} (${first.label})`;
+      price = first.price;
+    }
+    itemsToAdd.push({ menuId: menuItem.id, name, price, quantity, notes: ni.notes || '', isAdditional: isPaid, variant });
   }
 
   order.items.push(...itemsToAdd);
@@ -1261,6 +1331,7 @@ app.post('/api/orders/:id/items', (req, res) => {
 
 app.get('/api/stats', authMiddleware, requireRole('admin'), (req, res) => {
   const today = getTodayStat();
+  const devices = [...today.devices].sort((a, b) => b.count - a.count).slice(0, 100);
   res.json({
     today: {
       date: today.date,
@@ -1270,7 +1341,8 @@ app.get('/api/stats', authMiddleware, requireRole('admin'), (req, res) => {
       mobile: today.mobile,
       desktop: today.desktop,
       tablet: today.tablet,
-      bot: today.bot
+      bot: today.bot,
+      devices
     }
   });
 });

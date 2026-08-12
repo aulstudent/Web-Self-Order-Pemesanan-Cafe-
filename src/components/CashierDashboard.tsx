@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Order, OrderStatus, CafeSettings, MenuItem } from '../types';
+import { Order, OrderStatus, CafeSettings, MenuItem, UserAccount } from '../types';
 import { playNotificationOrCustomSound, initAudio, getCustomSound, setCustomSound, clearCustomSound } from '../utils/audio';
 import { Play, ClipboardCheck, ArrowUpRight, CheckCircle, Clock, ShoppingCart, UserCheck, DollarSign, Printer, X, Bell, Volume2, Search, ArrowRight, Trash2, Plus, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -8,9 +8,10 @@ import { apiFetch } from '../utils/api';
 interface CashierDashboardProps {
   settings: CafeSettings;
   onLogout: () => void;
+  user?: UserAccount | null;
 }
 
-export default function CashierDashboard({ settings, onLogout }: CashierDashboardProps) {
+export default function CashierDashboard({ settings, onLogout, user }: CashierDashboardProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<string>('semua');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -20,6 +21,7 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
   const [addItemModalOrder, setAddItemModalOrder] = useState<Order | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [itemQuantities, setItemQuantities] = useState<Record<string, number>>({});
+  const [addVariants, setAddVariants] = useState<Record<string, string>>({});
   const [isAddingItems, setIsAddingItems] = useState(false);
   const [currentTime, setCurrentTime] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -105,12 +107,12 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
     fetch('/api/menu').then(res => res.ok && res.json()).then(data => data && setMenuItems(data)).catch(() => {});
   }, []);
 
-  const handleToggleAvailability = async (item: MenuItem) => {
+  const handleToggleAvailability = async (item: MenuItem, value?: boolean) => {
     try {
       const res = await fetch(`/api/menu/${item.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isAvailable: !item.isAvailable })
+        body: JSON.stringify({ isAvailable: value !== undefined ? value : !item.isAvailable })
       });
       if (res.ok) {
         const data = await res.json();
@@ -118,6 +120,22 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
       }
     } catch (err) {
       console.error("Failed to toggle availability:", err);
+    }
+  };
+
+  const handleSetVariantStock = async (item: MenuItem, label: string, isAvailable: boolean) => {
+    try {
+      const res = await fetch(`/api/menu/${item.id}/variant`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, isAvailable })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMenuItems(prev => prev.map(m => m.id === item.id ? data.item : m));
+      }
+    } catch (err) {
+      console.error("Failed to set variant stock:", err);
     }
   };
 
@@ -190,12 +208,15 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
 
   const handleCancelItem = async (orderId: string, it: Order['items'][number]) => {
     try {
-      const res = await fetch(`/api/orders/${orderId}/items/${it.menuId}/cancel`, {
+      const qs = it.variant ? `?variant=${encodeURIComponent(it.variant)}` : '';
+      const res = await fetch(`/api/orders/${orderId}/items/${it.menuId}/cancel${qs}`, {
         method: 'PUT'
       });
       if (res.ok) {
-        const updatedOrder: Order = await res.json();
-        setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+        const data = await res.json();
+        if (data?.order) {
+          setOrders(prev => prev.map(o => o.id === orderId ? data.order : o));
+        }
       }
     } catch (err) {
       console.error("Failed to cancel item:", err);
@@ -204,12 +225,15 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
 
   const handleDeleteItem = async (orderId: string, it: Order['items'][number]) => {
     try {
-      const res = await fetch(`/api/orders/${orderId}/items/${it.menuId}`, {
+      const qs = it.variant ? `?variant=${encodeURIComponent(it.variant)}` : '';
+      const res = await fetch(`/api/orders/${orderId}/items/${it.menuId}${qs}`, {
         method: 'DELETE'
       });
       if (res.ok) {
-        const updatedOrder: Order = await res.json();
-        setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+        const data = await res.json();
+        if (data?.order) {
+          setOrders(prev => prev.map(o => o.id === orderId ? data.order : o));
+        }
       }
     } catch (err) {
       console.error("Failed to delete item:", err);
@@ -233,8 +257,11 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
   const handleAddItems = async () => {
     if (!addItemModalOrder) return;
     const items = Object.entries(itemQuantities)
-      .filter(([_, qty]: [string, unknown]) => (qty as number) > 0)
-      .map(([menuId, quantity]) => ({ menuId, quantity }));
+      .filter(([_, qty]) => (qty as number) > 0)
+      .map(([key, quantity]) => {
+        const [menuId, variant] = key.split('::');
+        return variant ? { menuId, variant, quantity } : { menuId, quantity };
+      });
 
     if (items.length === 0) return;
 
@@ -354,7 +381,7 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
           </button>
 
           <span className="text-xs font-bold text-brand-light-sage">{currentTime}</span>
-          <span className="text-xs font-bold text-brand-light-sage hidden sm:inline">Kasir: Budi</span>
+          <span className="text-xs font-bold text-brand-light-sage hidden sm:inline">{user?.name || 'Kasir'}</span>
 
           <button
             onClick={onLogout}
@@ -421,37 +448,6 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
                 ))}
               </div>
             )}
-          </div>
-
-          {/* Stock Management */}
-          <div className="space-y-3 border-t border-slate-100 pt-4">
-            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${menuItems.filter(m => !m.isAvailable).length > 0 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
-              Stok Menu
-            </h3>
-            <div className="space-y-1.5 max-h-48 overflow-y-auto">
-              {menuItems.length === 0 ? (
-                <p className="text-xs text-slate-400 font-medium italic">Memuat menu...</p>
-              ) : (
-                menuItems.map(item => (
-                  <div key={item.id} className="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100">
-                    <div className="min-w-0 flex-1 mr-2">
-                      <p className="text-xs font-bold text-slate-800 truncate">{item.name}</p>
-                    </div>
-                    <button
-                      onClick={() => handleToggleAvailability(item)}
-                      className={`shrink-0 text-[10px] font-bold px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                        item.isAvailable
-                          ? 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-200'
-                          : 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-200'
-                      }`}
-                    >
-                      {item.isAvailable ? 'Tersedia' : 'Habis'}
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
           </div>
 
           {/* Custom Notification Sound */}
@@ -534,7 +530,8 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
                 { id: 'menunggu_verifikasi', label: 'Menunggu Verifikasi' },
                 { id: 'diproses', label: 'Diproses' },
                 { id: 'siap_diambil', label: 'Siap Diambil' },
-                { id: 'selesai', label: 'Selesai' }
+                { id: 'selesai', label: 'Selesai' },
+                { id: 'stok', label: 'Stok Menu' }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -563,7 +560,92 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
             </div>
           </div>
 
-          {/* Orders Grid / Cards list */}
+          {/* Stok Menu Panel */}
+          {filter === 'stok' ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold bg-green-100 text-green-700 px-3 py-1.5 rounded-lg border border-green-200">
+                  Tersedia: {menuItems.filter(m => m.variants && m.variants.length ? m.variants.some(v => v.isAvailable !== false) : m.isAvailable).length}
+                </span>
+                <span className="text-xs font-bold bg-red-100 text-red-600 px-3 py-1.5 rounded-lg border border-red-200">
+                  Habis: {menuItems.filter(m => m.variants && m.variants.length ? m.variants.every(v => v.isAvailable === false) : !m.isAvailable).length}
+                </span>
+              </div>
+              {(() => {
+                const stockList = menuItems.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()));
+                if (stockList.length === 0) {
+                  return (
+                    <div className="bg-white rounded-2xl p-12 text-center border border-slate-100 text-slate-500 shadow-sm">
+                      <p className="font-bold text-slate-700 text-sm">Tidak ada menu</p>
+                      <p className="text-xs text-slate-400 mt-1">Belum ada menu yang cocok dengan pencarian.</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {stockList.map(item => {
+                      const isAvail = item.isAvailable;
+                      return (
+                        <div key={item.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-col justify-between">
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm truncate">{item.name}</p>
+                            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                              <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-brand-badge-bg text-brand-forest">
+                                {({ makanan: 'Food Menu', kudapan: 'Kudapan', dessert: 'Dessert', minuman: 'Minuman' } as any)[item.category] || item.category}
+                              </span>
+                              <span className="text-xs font-extrabold text-brand-forest">{formatPrice(item.price)}</span>
+                            </div>
+                          </div>
+                          {item.variants && item.variants.length > 0 ? (
+                            <div className="mt-3 space-y-2">
+                              {item.variants.map(v => {
+                                const vAvail = v.isAvailable !== false;
+                                return (
+                                  <div key={v.label} className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-600 w-12 shrink-0">{v.label}</span>
+                                    <div className="flex gap-1.5 flex-1">
+                                      <button
+                                        onClick={() => handleSetVariantStock(item, v.label, true)}
+                                        className={`flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${vAvail ? 'bg-green-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-green-50 hover:text-green-700 border border-slate-200 hover:border-green-300'}`}
+                                      >
+                                        Tersedia
+                                      </button>
+                                      <button
+                                        onClick={() => handleSetVariantStock(item, v.label, false)}
+                                        className={`flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${!vAvail ? 'bg-red-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 border border-slate-200 hover:border-red-300'}`}
+                                      >
+                                        Habis
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="flex gap-1.5 mt-3">
+                              <button
+                                onClick={() => handleToggleAvailability(item, true)}
+                                className={`flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${isAvail ? 'bg-green-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-green-50 hover:text-green-700 border border-slate-200 hover:border-green-300'}`}
+                              >
+                                Tersedia
+                              </button>
+                              <button
+                                onClick={() => handleToggleAvailability(item, false)}
+                                className={`flex-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${!isAvail ? 'bg-red-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 border border-slate-200 hover:border-red-300'}`}
+                              >
+                                Habis
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+          <>
           {filteredOrders.length === 0 ? (
             <div className="bg-white rounded-2xl p-12 text-center border border-slate-100 text-slate-500 shadow-sm">
               <p className="font-bold text-slate-700 text-sm">Tidak ada pesanan</p>
@@ -608,6 +690,10 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
                     <div className="space-y-1.5">
                       {order.items.map((it, idx) => {
                         const isActive = order.status === 'menunggu_verifikasi' || order.status === 'diproses';
+                        const rawVariant = it.variant || ((it.name.match(/\(([^)]+)\)\s*$/) || [])[1] || '').trim();
+                        const variantLabel = rawVariant ? rawVariant.charAt(0).toUpperCase() + rawVariant.slice(1) : '';
+                        const displayName = variantLabel ? it.name.replace(/\s*\([^)]*\)\s*$/, '') : it.name;
+                        const isHot = variantLabel.toLowerCase().includes('hot');
                         return (
                           <div key={idx} className={`flex justify-between text-xs ${it.isCancelled ? 'text-red-400' : 'text-slate-700'}`}>
                             <div className="min-w-0 flex-1">
@@ -631,8 +717,13 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
                                   </button>
                                 )}
                                 <span className={it.isCancelled ? 'line-through truncate' : 'truncate'}>
-                                  {it.name}
+                                  {displayName}
                                 </span>
+                                {variantLabel && (
+                                  <span className={`flex-shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${isHot ? 'bg-red-50 text-red-600 border-red-200' : 'bg-sky-50 text-sky-600 border-sky-200'}`}>
+                                    {variantLabel}
+                                  </span>
+                                )}
                                 <span className="text-slate-400 font-extrabold text-[10px] flex-shrink-0">x{it.quantity}</span>
                               </div>
                               {it.notes && (
@@ -759,6 +850,7 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
               ))}
             </div>
           )}
+          </>)}
 
           <p className="text-center text-[10px] text-slate-400 pt-2">© {new Date().getFullYear()} {settings.name} — Semua hak cipta dilindungi.</p>
         </main>
@@ -917,35 +1009,66 @@ export default function CashierDashboard({ settings, onLogout }: CashierDashboar
                     <span>{error}</span>
                   </div>
                 )}
-                {menuItems.filter(m => m.isAvailable).map(menuItem => (
-                  <div key={menuItem.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <div className="min-w-0 flex-1">
-                      <span className="text-sm font-bold text-slate-800 block truncate">{menuItem.name}</span>
-                      <span className="text-xs text-slate-500">{formatPrice(menuItem.price)}</span>
+                {menuItems.filter(m => m.isAvailable).map(menuItem => {
+                  const selV = menuItem.variants && menuItem.variants.length
+                    ? (menuItem.variants.find(v => v.label === (addVariants[menuItem.id] || menuItem.variants![0].label) && v.isAvailable !== false)
+                      || menuItem.variants.find(v => v.isAvailable !== false)
+                      || menuItem.variants[0])
+                    : undefined;
+                  const mKey = menuItem.variants && menuItem.variants.length
+                    ? `${menuItem.id}::${(addVariants[menuItem.id] || menuItem.variants[0].label)}`
+                    : menuItem.id;
+                  return (
+                  <div key={menuItem.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm font-bold text-slate-800 block truncate">{menuItem.name}</span>
+                        <span className="text-xs text-slate-500">{formatPrice(selV ? selV.price : menuItem.price)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                        <button
+                          onClick={() => setItemQuantities(prev => ({
+                            ...prev,
+                            [mKey]: Math.max(0, (prev[mKey] || 0) - 1)
+                          }))}
+                          className="w-7 h-7 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-600 hover:bg-slate-100 cursor-pointer font-bold text-sm"
+                        >
+                          -
+                        </button>
+                        <span className="w-8 text-center font-bold text-sm text-slate-800">{itemQuantities[mKey] || 0}</span>
+                        <button
+                          onClick={() => setItemQuantities(prev => ({
+                            ...prev,
+                            [mKey]: (prev[mKey] || 0) + 1
+                          }))}
+                          className="w-7 h-7 bg-brand-forest text-white border border-brand-forest rounded-lg flex items-center justify-center hover:bg-brand-deep cursor-pointer font-bold text-sm"
+                        >
+                          +
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                      <button
-                        onClick={() => setItemQuantities(prev => ({
-                          ...prev,
-                          [menuItem.id]: Math.max(0, (prev[menuItem.id] || 0) - 1)
-                        }))}
-                        className="w-7 h-7 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-600 hover:bg-slate-100 cursor-pointer font-bold text-sm"
-                      >
-                        -
-                      </button>
-                      <span className="w-8 text-center font-bold text-sm text-slate-800">{itemQuantities[menuItem.id] || 0}</span>
-                      <button
-                        onClick={() => setItemQuantities(prev => ({
-                          ...prev,
-                          [menuItem.id]: (prev[menuItem.id] || 0) + 1
-                        }))}
-                        className="w-7 h-7 bg-brand-forest text-white border border-brand-forest rounded-lg flex items-center justify-center hover:bg-brand-deep cursor-pointer font-bold text-sm"
-                      >
-                        +
-                      </button>
-                    </div>
+                    {menuItem.variants && menuItem.variants.length > 0 && (
+                      <div className="flex gap-1 mt-2">
+                        {menuItem.variants.map(v => {
+                          const isSel = (addVariants[menuItem.id] || menuItem.variants![0].label) === v.label;
+                          const chipOut = v.isAvailable === false;
+                          return (
+                            <button
+                              key={v.label}
+                              disabled={chipOut}
+                              onClick={() => setAddVariants(prev => ({ ...prev, [menuItem.id]: v.label }))}
+                              title={chipOut ? `${v.label} sedang habis` : v.label}
+                              className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all ${chipOut ? 'opacity-40 line-through cursor-not-allowed' : 'cursor-pointer ' + (isSel ? 'bg-brand-forest text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100')}`}
+                            >
+                              {v.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
                 {menuItems.filter(m => m.isAvailable).length === 0 && (
                   <p className="text-center text-slate-400 text-sm py-8 font-medium">Tidak ada menu tersedia</p>
                 )}

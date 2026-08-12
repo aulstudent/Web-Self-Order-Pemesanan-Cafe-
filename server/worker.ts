@@ -58,6 +58,7 @@ interface MenuRow {
   description: string;
   image_url: string;
   is_available: number;
+  variants: string;
   created_at: string;
 }
 
@@ -70,6 +71,7 @@ interface OrderRow {
   payment_method: string;
   status: string;
   additional_amount?: number;
+  archived_at?: string | null;
   created_at: string;
 }
 
@@ -189,6 +191,13 @@ const requireRole = (...roles: Role[]) => async (c: any, next: any) => {
 
 // ====== Data mappers ======
 function toMenu(m: MenuRow) {
+  let variants: { label: string; price: number; isAvailable?: boolean }[] | undefined;
+  if (m.variants) {
+    try {
+      variants = JSON.parse(m.variants);
+      variants = variants.map(v => ({ ...v, isAvailable: v.isAvailable !== false }));
+    } catch {}
+  }
   return {
     id: m.id,
     name: m.name,
@@ -198,6 +207,7 @@ function toMenu(m: MenuRow) {
     imageUrl: m.image_url,
     isAvailable: !!m.is_available,
     createdAt: m.created_at,
+    variants: variants && variants.length ? variants : undefined,
   };
 }
 
@@ -212,6 +222,7 @@ function toOrder(o: OrderRow) {
     status: o.status,
     createdAt: o.created_at,
     additionalAmount: o.additional_amount || 0,
+    archivedAt: o.archived_at || undefined,
   };
 }
 
@@ -275,7 +286,7 @@ function invalidateSettingsCache() { settingsCache.data = null; }
 
 async function getOrdersCached(db: D1Database): Promise<any[]> {
   if (ordersCache.data && Date.now() - ordersCache.ts < ORDERS_TTL) return ordersCache.data;
-  const rows = await db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all<OrderRow>();
+  const rows = await db.prepare('SELECT * FROM orders WHERE archived_at IS NULL ORDER BY created_at DESC').all<OrderRow>();
   ordersCache.data = rows.results.map(toOrder);
   ordersCache.ts = Date.now();
   return ordersCache.data;
@@ -292,30 +303,77 @@ function classifyUa(ua: string): { device: 'mobile' | 'desktop' | 'tablet'; isBo
   return { device: 'desktop', isBot };
 }
 
+function deviceLabel(ua: string): string {
+  const s = (ua || '').toLowerCase();
+  const bots: [RegExp, string][] = [
+    [/googlebot|google-extended/i, 'Googlebot'], [/bingbot|bingpreview/i, 'Bingbot'],
+    [/facebookexternalhit|facebook/i, 'Facebook'], [/twitterbot/i, 'Twitterbot'],
+    [/gptbot|chatgpt/i, 'GPTBot'], [/claude/i, 'ClaudeBot'], [/anthropic/i, 'Anthropic'],
+    [/openai/i, 'OpenAI'], [/gemini|bard/i, 'Google Gemini'], [/yandex/i, 'Yandex'],
+    [/baiduspider/i, 'Baidu'], [/duckduck/i, 'DuckDuckGo'], [/telegrambot/i, 'Telegram']
+  ];
+  for (const [re, name] of bots) if (re.test(s)) return `${name} (bot)`;
+  let os = 'Perangkat';
+  if (s.includes('iphone')) os = 'iPhone';
+  else if (s.includes('ipad')) os = 'iPad';
+  else if (s.includes('android')) os = 'Android';
+  else if (s.includes('mac os') || s.includes('macintosh')) os = 'macOS';
+  else if (s.includes('windows')) os = 'Windows';
+  else if (s.includes('linux')) os = 'Linux';
+  let br = 'Browser';
+  if (s.includes('edg/') || s.includes('edge')) br = 'Edge';
+  else if (s.includes('chrome')) br = 'Chrome';
+  else if (s.includes('firefox')) br = 'Firefox';
+  else if (s.includes('safari') && !s.includes('chrome')) br = 'Safari';
+  else if (s.includes('postman')) br = 'Postman';
+  else if (s.includes('curl')) br = 'curl';
+  else if (s.includes('python')) br = 'Python';
+  else if (s.includes('okhttp')) br = 'OkHttp';
+  return (os === 'Perangkat' && br === 'Browser') ? 'Browser lain' : `${os} • ${br}`;
+}
+
 async function trackRequest(c: any) {
   const date = new Date().toISOString().slice(0, 10);
+  const ts = new Date().toISOString();
   const ip = c.req.header('CF-Connecting-IP') || 'local';
   const ua = c.req.header('User-Agent') || '';
   const cls = classifyUa(ua);
+  const label = deviceLabel(ua);
   const row = await c.env.DB.prepare('SELECT * FROM daily_stats WHERE date = ?').bind(date).first();
+  let devices: any[] = [];
+  if (row) {
+    try { devices = JSON.parse((row as any).devices || '[]'); } catch {}
+  }
+  const ent = devices.find((x: any) => x.ip === ip);
+  if (ent) {
+    ent.count += 1;
+    ent.lastSeen = ts;
+    ent.device = label;
+    ent.isBot = ent.isBot || cls.isBot;
+  } else {
+    devices.push({ ip, device: label, isBot: cls.isBot, count: 1, lastSeen: ts });
+  }
+  const devicesStr = JSON.stringify(devices);
   if (!row) {
-    await c.env.DB.prepare('INSERT INTO daily_stats (date, requests, unique_ips, orders, mobile, desktop, tablet, bot) VALUES (?, 1, ?, 0, ?, ?, ?, ?)')
+    await c.env.DB.prepare('INSERT INTO daily_stats (date, requests, unique_ips, orders, mobile, desktop, tablet, bot, devices) VALUES (?, 1, ?, 0, ?, ?, ?, ?, ?)')
       .bind(date, JSON.stringify([ip]),
         cls.device === 'mobile' ? 1 : 0,
         cls.device === 'desktop' ? 1 : 0,
         cls.device === 'tablet' ? 1 : 0,
-        cls.isBot ? 1 : 0
+        cls.isBot ? 1 : 0,
+        devicesStr
       ).run();
     return;
   }
   const ips: string[] = JSON.parse(row.unique_ips || '[]');
   if (!ips.includes(ip)) ips.push(ip);
-  await c.env.DB.prepare('UPDATE daily_stats SET requests = requests + 1, unique_ips = ?, mobile = mobile + ?, desktop = desktop + ?, tablet = tablet + ?, bot = bot + ? WHERE date = ?')
+  await c.env.DB.prepare('UPDATE daily_stats SET requests = requests + 1, unique_ips = ?, mobile = mobile + ?, desktop = desktop + ?, tablet = tablet + ?, bot = bot + ?, devices = ? WHERE date = ?')
     .bind(JSON.stringify(ips),
       cls.device === 'mobile' ? 1 : 0,
       cls.device === 'desktop' ? 1 : 0,
       cls.device === 'tablet' ? 1 : 0,
       cls.isBot ? 1 : 0,
+      devicesStr,
       date
     ).run();
 }
@@ -492,12 +550,13 @@ app.get('/api/menu', async (c) => {
 });
 
 app.post('/api/menu', auth, requireRole('owner', 'kasir'), async (c) => {
-  const { name, category, price, description, imageUrl, isAvailable } = await c.req.json().catch(() => ({}));
+  const { name, category, price, description, imageUrl, isAvailable, variants } = await c.req.json().catch(() => ({}));
   if (!name || !category || price === undefined) return c.json({ error: 'Nama, kategori, dan harga harus diisi' }, 400);
   const id = `menu-${Date.now()}`;
+  const variantsStr = Array.isArray(variants) && variants.length ? JSON.stringify(variants) : '';
   await c.env.DB.prepare(
-    'INSERT INTO menu (id, name, category, price, description, image_url, is_available, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(id, name, category, Number(price), description || '', imageUrl || '', isAvailable !== undefined ? (isAvailable ? 1 : 0) : 1, new Date().toISOString()).run();
+    'INSERT INTO menu (id, name, category, price, description, image_url, is_available, variants, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(id, name, category, Number(price), description || '', imageUrl || '', isAvailable !== undefined ? (isAvailable ? 1 : 0) : 1, variantsStr, new Date().toISOString()).run();
   invalidateMenuCache();
   const row = await c.env.DB.prepare('SELECT * FROM menu WHERE id = ?').bind(id).first<MenuRow>();
   return c.json({ message: 'Menu berhasil ditambahkan', item: toMenu(row!) }, 201);
@@ -506,28 +565,48 @@ app.post('/api/menu', auth, requireRole('owner', 'kasir'), async (c) => {
 app.put('/api/menu/:id', auth, requireRole('owner', 'kasir'), async (c) => {
   const { id } = c.req.param();
   const user = c.get('user') as { role: Role };
-  const { name, category, price, description, imageUrl, isAvailable } = await c.req.json().catch(() => ({}));
+  const { name, category, price, description, imageUrl, isAvailable, variants } = await c.req.json().catch(() => ({}));
 
   const current = await c.env.DB.prepare('SELECT * FROM menu WHERE id = ?').bind(id).first<MenuRow>();
   if (!current) return c.json({ error: 'Menu tidak ditemukan' }, 404);
 
-  if (user.role !== 'owner' && (name !== undefined || category !== undefined || price !== undefined || description !== undefined || imageUrl !== undefined)) {
+  if (user.role !== 'owner' && (name !== undefined || category !== undefined || price !== undefined || description !== undefined || imageUrl !== undefined || variants !== undefined)) {
     return c.json({ error: 'Kasir hanya bisa mengubah status ketersediaan menu' }, 403);
   }
 
+  const variantsStr = Array.isArray(variants) ? JSON.stringify(variants) : undefined;
   await c.env.DB.prepare(
     'UPDATE menu SET name = COALESCE(?, name), category = COALESCE(?, category), price = COALESCE(?, price), ' +
-    'description = COALESCE(?, description), image_url = COALESCE(?, image_url), is_available = COALESCE(?, is_available) WHERE id = ?'
+    'description = COALESCE(?, description), image_url = COALESCE(?, image_url), is_available = COALESCE(?, is_available), variants = COALESCE(?, variants) WHERE id = ?'
   ).bind(
     name ?? null, category ?? null,
     price !== undefined ? Number(price) : null,
     description ?? null, imageUrl ?? null,
-    isAvailable !== undefined ? (isAvailable ? 1 : 0) : null, id
+    isAvailable !== undefined ? (isAvailable ? 1 : 0) : null,
+    variantsStr ?? null, id
   ).run();
   invalidateMenuCache();
 
   const row = await c.env.DB.prepare('SELECT * FROM menu WHERE id = ?').bind(id).first<MenuRow>();
   return c.json({ message: 'Menu berhasil diperbarui', item: toMenu(row!) });
+});
+
+// Set stok per-varian (kasir/owner) — mis. Ice habis, Hot tersedia
+app.put('/api/menu/:id/variant', auth, requireRole('owner', 'kasir'), async (c) => {
+  const { id } = c.req.param();
+  const { label, isAvailable } = await c.req.json().catch(() => ({}));
+  if (!label || typeof isAvailable !== 'boolean') return c.json({ error: 'Label dan status varian harus diisi' }, 400);
+  const current = await c.env.DB.prepare('SELECT * FROM menu WHERE id = ?').bind(id).first<MenuRow>();
+  if (!current) return c.json({ error: 'Menu tidak ditemukan' }, 404);
+  let variants: any[] = [];
+  try { variants = JSON.parse(current.variants || '[]'); } catch {}
+  const v = variants.find((x: any) => x.label === label);
+  if (!v) return c.json({ error: 'Varian tidak ditemukan' }, 404);
+  v.isAvailable = isAvailable;
+  await c.env.DB.prepare('UPDATE menu SET variants = ? WHERE id = ?').bind(JSON.stringify(variants), id).run();
+  invalidateMenuCache();
+  const row = await c.env.DB.prepare('SELECT * FROM menu WHERE id = ?').bind(id).first<MenuRow>();
+  return c.json({ message: 'Stok varian diperbarui', item: toMenu(row!) });
 });
 
 app.delete('/api/menu/:id', auth, requireRole('owner', 'admin'), async (c) => {
@@ -635,16 +714,29 @@ app.post('/api/orders', async (c) => {
   if (!customerName || !tableNumber || !items || !items.length || !paymentMethod) {
     return c.json({ error: 'Semua data pesanan wajib diisi (Nama, Meja, Item, Metode Pembayaran)' }, 400);
   }
-  const totalPrice = items.reduce((sum: number, it: any) => sum + (it.price * it.quantity), 0);
+  const menuRows = await getMenuCached(c.env.DB);
+  const normItems = items.map((ni: any) => {
+    const m = menuRows.find((x: any) => x.id === ni.menuId);
+    if (!m) return { menuId: ni.menuId, name: ni.name || 'Unknown', price: Number(ni.price) || 0, quantity: Number(ni.quantity) || 1, notes: ni.notes || '', variant: ni.variant };
+    let name = ni.name || m.name;
+    let price = Number(ni.price) || m.price;
+    let variant = ni.variant;
+    if (ni.variant && m.variants && m.variants.length) {
+      const v = m.variants.find((x: any) => x.label === ni.variant);
+      if (v) { name = `${m.name} (${v.label})`; price = v.price; }
+    }
+    return { menuId: m.id, name, price, quantity: Number(ni.quantity) || 1, notes: ni.notes || '', variant };
+  });
+  const totalPrice = normItems.reduce((sum: number, it: any) => sum + (it.price * it.quantity), 0);
   const stmt = c.env.DB.prepare(
     'INSERT INTO orders (id, customer_name, table_number, items, total_price, payment_method, status, additional_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)'
   );
   let id = generateOrderId();
   try {
-    await stmt.bind(id, customerName, tableNumber, JSON.stringify(items), totalPrice, paymentMethod, 'menunggu_verifikasi', new Date().toISOString()).run();
+    await stmt.bind(id, customerName, tableNumber, JSON.stringify(normItems), totalPrice, paymentMethod, 'menunggu_verifikasi', new Date().toISOString()).run();
   } catch (e) {
     id = generateOrderId();
-    await stmt.bind(id, customerName, tableNumber, JSON.stringify(items), totalPrice, paymentMethod, 'menunggu_verifikasi', new Date().toISOString()).run();
+    await stmt.bind(id, customerName, tableNumber, JSON.stringify(normItems), totalPrice, paymentMethod, 'menunggu_verifikasi', new Date().toISOString()).run();
   }
   await trackOrder(c);
   invalidateOrdersCache();
@@ -666,6 +758,7 @@ app.put('/api/orders/:id/status', auth, requireRole('owner', 'kasir'), async (c)
   const { status } = await c.req.json().catch(() => ({}));
   const order = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<OrderRow>();
   if (!order) return c.json({ error: 'Pesanan tidak ditemukan' }, 404);
+  if (order.archived_at) return c.json({ error: 'Pesanan sudah diarsipkan' }, 400);
   const allowed = ALLOWED_TRANSITIONS[order.status] || [];
   if (!allowed.includes(status)) {
     return c.json({ error: `Transisi status tidak valid: ${order.status} -> ${status}` }, 400);
@@ -683,6 +776,7 @@ app.put('/api/orders/:id/cancel', auth, requireRole('owner', 'kasir'), async (c)
   const { id } = c.req.param();
   const order = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<OrderRow>();
   if (!order) return c.json({ error: 'Pesanan tidak ditemukan' }, 404);
+  if (order.archived_at) return c.json({ error: 'Pesanan sudah diarsipkan' }, 400);
   const items = JSON.parse(order.items).map((i: any) => ({ ...i, isCancelled: true, cancelledAt: new Date().toISOString() }));
   await c.env.DB.prepare('UPDATE orders SET status = ?, items = ? WHERE id = ?').bind('dibatalkan', JSON.stringify(items), id).run();
   invalidateOrdersCache();
@@ -695,6 +789,7 @@ app.delete('/api/orders/:id', auth, requireRole('owner', 'kasir'), async (c) => 
   const { id } = c.req.param();
   const order = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<OrderRow>();
   if (!order) return c.json({ error: 'Pesanan tidak ditemukan' }, 404);
+  if (order.archived_at) return c.json({ error: 'Pesanan sudah diarsipkan' }, 400);
   await c.env.DB.prepare('DELETE FROM orders WHERE id = ?').bind(id).run();
   invalidateOrdersCache();
   return c.json({ message: 'Pesanan berhasil dihapus', order: toOrder(order) });
@@ -703,10 +798,12 @@ app.delete('/api/orders/:id', auth, requireRole('owner', 'kasir'), async (c) => 
 // Item-level operations
 app.put('/api/orders/:id/items/:menuId/cancel', auth, requireRole('owner', 'kasir'), async (c) => {
   const { id, menuId } = c.req.param();
+  const variant = c.req.query('variant') || undefined;
   const order = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<OrderRow>();
   if (!order) return c.json({ error: 'Pesanan tidak ditemukan' }, 404);
+  if (order.archived_at) return c.json({ error: 'Pesanan sudah diarsipkan' }, 400);
   let items = JSON.parse(order.items);
-  const idx = items.findIndex((i: any) => i.menuId === menuId && !i.isCancelled);
+  const idx = items.findIndex((i: any) => i.menuId === menuId && (i.variant || '') === (variant || '') && !i.isCancelled);
   if (idx === -1) return c.json({ error: 'Item tidak ditemukan atau sudah dibatalkan' }, 404);
   items[idx] = { ...items[idx], isCancelled: true, cancelledAt: new Date().toISOString() };
   const total = items.filter((i: any) => !i.isCancelled).reduce((s: number, i: any) => s + (i.price * i.quantity), 0);
@@ -719,10 +816,12 @@ app.put('/api/orders/:id/items/:menuId/cancel', auth, requireRole('owner', 'kasi
 
 app.put('/api/orders/:id/items/:menuId/uncancel', auth, requireRole('owner', 'kasir'), async (c) => {
   const { id, menuId } = c.req.param();
+  const variant = c.req.query('variant') || undefined;
   const order = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<OrderRow>();
   if (!order) return c.json({ error: 'Pesanan tidak ditemukan' }, 404);
+  if (order.archived_at) return c.json({ error: 'Pesanan sudah diarsipkan' }, 400);
   let items = JSON.parse(order.items);
-  const idx = items.findIndex((i: any) => i.menuId === menuId && i.isCancelled);
+  const idx = items.findIndex((i: any) => i.menuId === menuId && (i.variant || '') === (variant || '') && i.isCancelled);
   if (idx === -1) return c.json({ error: 'Item tidak ditemukan atau tidak dibatalkan' }, 404);
   items[idx] = { ...items[idx], isCancelled: false, cancelledAt: undefined };
   const total = items.filter((i: any) => !i.isCancelled).reduce((s: number, i: any) => s + (i.price * i.quantity), 0);
@@ -735,9 +834,11 @@ app.put('/api/orders/:id/items/:menuId/uncancel', auth, requireRole('owner', 'ka
 
 app.delete('/api/orders/:id/items/:menuId', auth, requireRole('owner', 'kasir'), async (c) => {
   const { id, menuId } = c.req.param();
+  const variant = c.req.query('variant') || undefined;
   const order = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<OrderRow>();
   if (!order) return c.json({ error: 'Pesanan tidak ditemukan' }, 404);
-  const items = JSON.parse(order.items).filter((i: any) => i.menuId !== menuId);
+  if (order.archived_at) return c.json({ error: 'Pesanan sudah diarsipkan' }, 400);
+  const items = JSON.parse(order.items).filter((i: any) => !(i.menuId === menuId && (i.variant || '') === (variant || '')));
   const total = items.filter((i: any) => !i.isCancelled).reduce((s: number, i: any) => s + (i.price * i.quantity), 0);
   const additionalAmount = computeAdditionalAmount(items);
   await c.env.DB.prepare('UPDATE orders SET items = ?, total_price = ?, additional_amount = ? WHERE id = ?').bind(JSON.stringify(items), total, additionalAmount, id).run();
@@ -752,6 +853,7 @@ app.post('/api/orders/:id/items', async (c) => {
   if (!items || !items.length) return c.json({ error: 'Item harus diisi' }, 400);
   const order = await c.env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<OrderRow>();
   if (!order) return c.json({ error: 'Pesanan tidak ditemukan' }, 404);
+  if (order.archived_at) return c.json({ error: 'Pesanan sudah diarsipkan' }, 400);
 
   const token = getCookie(c, 'token');
   let isStaff = false;
@@ -783,7 +885,25 @@ app.post('/api/orders/:id/items', async (c) => {
     if (!menuItem) return c.json({ error: `Menu dengan id ${ni.menuId} tidak ditemukan` }, 404);
     if (!menuItem.isAvailable) return c.json({ error: `${menuItem.name} sedang tidak tersedia` }, 400);
     const quantity = Math.max(1, Math.floor(Number(ni.quantity) || 1));
-    itemsToAdd.push({ menuId: menuItem.id, name: menuItem.name, price: menuItem.price, quantity, notes: ni.notes || '', isAdditional: isPaid });
+    let name = menuItem.name;
+    let price = menuItem.price;
+    let variant: string | undefined;
+    if (ni.variant && menuItem.variants && menuItem.variants.length) {
+      const v = menuItem.variants.find((x: any) => x.label === ni.variant);
+      if (v) {
+        if (v.isAvailable === false) return c.json({ error: `${menuItem.name} (${v.label}) sedang habis` }, 400);
+        variant = v.label;
+        name = `${menuItem.name} (${v.label})`;
+        price = v.price;
+      }
+    } else if (menuItem.variants && menuItem.variants.length) {
+      const first = menuItem.variants[0];
+      if (first.isAvailable === false) return c.json({ error: `${menuItem.name} (${first.label}) sedang habis` }, 400);
+      variant = first.label;
+      name = `${menuItem.name} (${first.label})`;
+      price = first.price;
+    }
+    itemsToAdd.push({ menuId: menuItem.id, name, price, quantity, notes: ni.notes || '', isAdditional: isPaid, variant });
   }
   itemsToAdd.forEach((ni: any) => current.push(ni));
   const total = current.filter((i: any) => !i.isCancelled).reduce((s: number, i: any) => s + (i.price * i.quantity), 0);
@@ -840,7 +960,12 @@ app.get('/api/report', auth, requireRole('owner', 'admin'), async (c) => {
 // Stats (khusus admin / godmode)
 app.get('/api/stats', auth, requireRole('admin'), async (c) => {
   const date = new Date().toISOString().slice(0, 10);
-  const row = await c.env.DB.prepare('SELECT * FROM daily_stats WHERE date = ?').bind(date).first() as { requests: number; unique_ips: string; orders: number; mobile: number; desktop: number; tablet: number; bot: number } | null;
+  const row = await c.env.DB.prepare('SELECT * FROM daily_stats WHERE date = ?').bind(date).first() as { requests: number; unique_ips: string; orders: number; mobile: number; desktop: number; tablet: number; bot: number; devices: string } | null;
+  let devices: any[] = [];
+  if (row) {
+    try { devices = JSON.parse(row.devices || '[]'); } catch {}
+  }
+  devices.sort((a: any, b: any) => (b.count || 0) - (a.count || 0));
   return c.json({
     today: {
       date,
@@ -851,6 +976,7 @@ app.get('/api/stats', auth, requireRole('admin'), async (c) => {
       desktop: row?.desktop || 0,
       tablet: row?.tablet || 0,
       bot: row?.bot || 0,
+      devices: devices.slice(0, 100),
     },
   });
 });
