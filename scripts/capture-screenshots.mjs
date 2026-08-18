@@ -53,6 +53,44 @@ async function stopServer() {
   }
 }
 
+// Sandi hanya dari file lokal .credentials.local (TIDAK di commit) + optional env
+// SCREENSHOT_KASIR_PASSWORD / SCREENSHOT_OWNER_PASSWORD bila sandi lokal sudah diganti.
+// Jangan hardcode sandi di file ini.
+function readCredentials() {
+  const file = path.join(ROOT, '.credentials.local');
+  const creds = {};
+  try {
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      const m = line.trim().match(/^(\w+):\s*(\S+)\s*$/);
+      if (m) creds[m[1]] = m[2];
+    }
+  } catch {}
+  return creds;
+}
+
+function staffPasswords(role, creds) {
+  const list = [];
+  if (creds[role]) list.push(creds[role]);
+  const envKey = `SCREENSHOT_${role.toUpperCase()}_PASSWORD`;
+  if (process.env[envKey]) list.push(process.env[envKey]);
+  return list;
+}
+
+async function loginStaff(page, role, passwords) {
+  for (const password of passwords) {
+    await page.goto(`${BASE}/staff`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('input[type="text"]', { timeout: 15000 });
+    await page.fill('input[type="text"]', role);
+    await page.fill('input[type="password"]', password);
+    await page.getByRole('button', { name: 'Masuk Ke Dashboard' }).click();
+    try {
+      await page.waitForSelector('input[type="password"]', { state: 'detached', timeout: 8000 });
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
 async function openCustomerMenu(page, viewport) {
   await page.setViewportSize(viewport);
   await page.goto(`${BASE}/?table=1`, { waitUntil: 'domcontentloaded' });
@@ -76,10 +114,10 @@ async function capture() {
     await cPage.screenshot({ path: path.join(OUT_DIR, 'customer-menu.png'), fullPage: true });
     console.log('✓ customer-menu.png');
 
-    // 2. Halaman menu customer — mobile
+    // 2. Halaman menu customer — mobile (viewport natural, bukan fullPage biar rapih)
     const mPage = await mobile.newPage();
     await openCustomerMenu(mPage, { width: 390, height: 844 });
-    await mPage.screenshot({ path: path.join(OUT_DIR, 'customer-menu-mobile.png'), fullPage: true });
+    await mPage.screenshot({ path: path.join(OUT_DIR, 'customer-menu-mobile.png') });
     console.log('✓ customer-menu-mobile.png');
 
     // 3. Login kasir / owner
@@ -90,19 +128,51 @@ async function capture() {
     await sPage.screenshot({ path: path.join(OUT_DIR, 'cashier-login.png'), fullPage: true });
     console.log('✓ cashier-login.png');
 
-    // 4. Login godmode admin
-    const gPage = await desktop.newPage();
-    await gPage.goto(`${BASE}/godmode`, { waitUntil: 'domcontentloaded' });
-    await gPage.waitForSelector('text=Admin Monitoring', { timeout: 15000 });
-    await gPage.waitForTimeout(400);
-    await gPage.screenshot({ path: path.join(OUT_DIR, 'godmode-login.png'), fullPage: true });
-    console.log('✓ godmode-login.png');
+    const creds = readCredentials();
+
+    // 4. Dashboard kasir (bagian kasir) — login via UI agar sessionStorage terisi
+    const kPage = await desktop.newPage();
+    const kasirPasswords = staffPasswords('kasir', creds);
+    if (await loginStaff(kPage, 'kasir', kasirPasswords)) {
+      await kPage.waitForSelector('text=Kasir Dashboard', { timeout: 10000 });
+      await kPage.waitForTimeout(800);
+      await kPage.screenshot({ path: path.join(OUT_DIR, 'cashier-dashboard.png') });
+      console.log('✓ cashier-dashboard.png');
+    } else {
+      console.log('⚠ Login kasir gagal — dashboard kasir dilewati (set SCREENSHOT_KASIR_PASSWORD jika sandi lokal sudah diganti).');
+    }
+
+    // 5. QR Code Meja (barcode untuk memesan) — login owner
+    const oPage = await desktop.newPage();
+    const ownerPasswords = staffPasswords('owner', creds);
+    if (await loginStaff(oPage, 'owner', ownerPasswords)) {
+      await oPage.waitForSelector('button:has-text("QR Code Meja")', { timeout: 10000 });
+      await oPage.getByRole('button', { name: 'QR Code Meja' }).click();
+      await oPage.waitForSelector('img[src*="qrserver"]', { timeout: 15000 });
+      try {
+        await oPage.waitForFunction(
+          () => {
+            const imgs = [...document.querySelectorAll('img[src*="qrserver"]')];
+            return imgs.length > 0 && imgs.every(img => img.complete && img.naturalWidth > 0);
+          },
+          { timeout: 15000 }
+        );
+      } catch {
+        console.log('⚠ QR code belum selesai dimuat (butuh internet) — tetap di-capture.');
+      }
+      await oPage.waitForTimeout(600);
+      const qrPanel = oPage.locator('div.space-y-4:has(h2:text("Generate QR Code Meja"))');
+      await qrPanel.screenshot({ path: path.join(OUT_DIR, 'table-qr-codes.png') });
+      console.log('✓ table-qr-codes.png');
+    } else {
+      console.log('⚠ Login owner gagal — QR Code Meja dilewati (set SCREENSHOT_OWNER_PASSWORD jika sandi lokal sudah diganti).');
+    }
   } finally {
     await desktop.close();
     await mobile.close();
   }
 
-  // 5. GIF alur order (opsional; butuh ffmpeg)
+  // 6. GIF alur order (opsional; butuh ffmpeg)
   try {
     execSync('ffmpeg -version', { stdio: 'ignore' });
   } catch {

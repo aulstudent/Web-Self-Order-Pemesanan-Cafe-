@@ -47,18 +47,29 @@ flowchart LR
 
 ## Preview
 
+**Pelanggan**
+
 <p align="center">
   <img src="screenshots/customer-menu.png" alt="Halaman menu pelanggan (desktop)" width="45%" />
-  <img src="screenshots/customer-menu-mobile.png" alt="Halaman menu pelanggan (mobile)" width="30%" />
+  <img src="screenshots/customer-menu-mobile.png" alt="Halaman menu pelanggan (mobile)" width="27%" />
 </p>
+
+**Staf & Kasir**
 
 <p align="center">
   <img src="screenshots/cashier-login.png" alt="Login kasir/owner" width="45%" />
+  <img src="screenshots/cashier-dashboard.png" alt="Dashboard kasir" width="45%" />
 </p>
 
+**QR Self-Order**
+
 <p align="center">
-  <b>Alur pemesanan</b>
-  <br />
+  <img src="screenshots/table-qr-codes.png" alt="QR Code Meja untuk memesan" width="60%" />
+</p>
+
+**Alur pemesanan**
+
+<p align="center">
   <img src="screenshots/order-flow.gif" alt="Demo alur pemesanan" width="35%" />
 </p>
 

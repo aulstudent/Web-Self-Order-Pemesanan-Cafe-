@@ -34,18 +34,29 @@
 
 ## 👀 Preview
 
+**Customers**
+
 <p align="center">
   <img src="screenshots/customer-menu.png" alt="Customer menu page (desktop)" width="45%" />
-  <img src="screenshots/customer-menu-mobile.png" alt="Customer menu page (mobile)" width="30%" />
+  <img src="screenshots/customer-menu-mobile.png" alt="Customer menu page (mobile)" width="27%" />
 </p>
+
+**Staff & Cashier**
 
 <p align="center">
   <img src="screenshots/cashier-login.png" alt="Cashier/owner login" width="45%" />
+  <img src="screenshots/cashier-dashboard.png" alt="Cashier dashboard" width="45%" />
 </p>
 
+**QR Self-Order**
+
 <p align="center">
-  <b>Ordering flow demo</b>
-  <br />
+  <img src="screenshots/table-qr-codes.png" alt="Table QR codes for ordering" width="60%" />
+</p>
+
+**Ordering flow demo**
+
+<p align="center">
   <img src="screenshots/order-flow.gif" alt="Ordering flow demo" width="35%" />
 </p>
 
